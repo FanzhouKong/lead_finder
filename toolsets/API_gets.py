@@ -11,6 +11,12 @@ def name_to_smiles(ids):
         return r['PropertyTable']['Properties'][0]['CanonicalSMILES']
     except:
         return np.NAN
+def smiles_to_name(smile):
+    try:
+        r = requests.get(f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smile}/property/IUPACName/JSON').json()
+        return r['PropertyTable']['Properties'][0]['IUPACName']
+    except:
+        return(np.NAN)
 def pubchem_get(inputt='InChIKey',outputt ='CanonicalSMILES',content=None , show_example = False):
 
     if show_example == True:

@@ -227,15 +227,16 @@ def standardize_spectra(ms):
     return(pack_spectra(mass, intensity))
     
 def break_spectra(spectra):
-    if len(spectra)!=0:
-        split_msms = re.split('\t|\n',spectra)
-        intensity = split_msms[1:][::2]
-        mass = split_msms[::2]
-        mass = [float(item) for item in mass]
-        intensity = [float(item) for item in intensity]
-        return(mass, intensity)
+    if spectra == spectra:
+        if len(spectra)!=0:
+            split_msms = re.split('\t|\n',spectra)
+            intensity = split_msms[1:][::2]
+            mass = split_msms[::2]
+            mass = [float(item) for item in mass]
+            intensity = [float(item) for item in intensity]
+            return(mass, intensity)
     else:
-        return(np.NaN)
+        return(np.NaN, np.NAN)
 
 def pack_spectra(mass, intensity):
     if len(mass)>0 and len(intensity)>0:
@@ -503,7 +504,23 @@ def normalize_spectrum(msms):
     intensity_rel = [round(number, 8) for number in intensity_rel]
     return(pack_spectra(mass, intensity_rel))
 
+def _extract_ms1_intensity(peaks, mz_lower, mz_upper):
+    mass_temp, intensity_temp = break_spectra(peaks)
+    if mass_temp == mass_temp:
+        index_start = np.searchsorted(mass_temp, mz_lower,side = 'left')
+        index_end = np.searchsorted(mass_temp, mz_upper,side = 'right')
+        return(np.sum(intensity_temp[index_start: index_end]))
+    else:
+        return(0)
+def _extract_ms1_mass(peaks, mz_lower, mz_upper):
 
+    mass_temp, intensity_temp = break_spectra(peaks)
+    if mass_temp == mass_temp:
+        index_start = np.searchsorted(mass_temp, mz_lower,side = 'left')
+        index_end = np.searchsorted(mass_temp, mz_upper,side = 'right')
+        return(mass_temp[index_start:index_end])
+    else:
+        return([])
 # def comparing_spectrum(msms1, msms2):
 #     if(num_peaks(msms1)<num_peaks(msms2)):
 #         temp_msms = msms1

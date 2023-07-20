@@ -12,7 +12,6 @@ import os
 import toolsets.spectra_operations as so
 from toolsets.search import string_search, quick_search_values, num_search
 import toolsets.helpers as helpers
-import findpeaks as fp
 import toolsets.file_io as io
 from itertools import repeat
 import pymzml
@@ -20,7 +19,6 @@ from scipy.signal import find_peaks
 import toolsets.parallel_functions as pf
 # from toolsets.parallel_functions import _extract_mzml_info
 from multiprocessing import Pool, freeze_support
-np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 import contextlib
 import concurrent.futures
 from matplotlib import rcParams
@@ -89,8 +87,10 @@ def get_feature(ms2,current_pmz_bin,ms1):
         for rt in features_all['rt'].unique():
             feature_rt = string_search(features_all, 'rt', rt)
             feature_rt.sort_values(by = 'rt_offset', inplace= True, ignore_index=True, ascending=True)
-            features_tidy= features_tidy.append(feature_rt.iloc[0])
+            # features_tidy= features_tidy.append(feature_rt.iloc[0])
+            features_tidy = pd.concat([features_tidy,pd.DataFrame([feature_rt.iloc[0]])], axis =0)
         features_tidy.reset_index(inplace=True, drop=True)
+
         return(features_tidy)
     else:
         return(features_all)
@@ -180,7 +180,9 @@ def process_mzml(mzml_path, parent_dir =  None, rt_max = 5,if_mix = True, with_m
         ms2['mix']= os.path.basename(mzml_path)
         ms2['base_name']=os.path.basename(mzml_path)
     ms2.sort_values(by = ['ms1_pmz', 'ms1_precursor_intensity'], inplace = True)
+    ms2 =ms2[ms2['peak_purity'] !=0]
     ms2.reset_index(inplace=True, drop=True)
+
     if with_ms1 == True:
         return(ms1, ms2)
     else:

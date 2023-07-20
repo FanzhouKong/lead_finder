@@ -7,10 +7,38 @@ import os
 from toolsets.msp_file import read_one_spectrum
 from toolsets.filename import smart_io
 import re
+import shutil
 import numpy as np
 from tqdm import tqdm
 from fuzzywuzzy import fuzz
 import pymzml
+def split_pos_neg(all_folder, tail = 'mzML'):
+    pos_folder = os.path.join(all_folder, 'pos')
+    neg_folder = os.path.join(all_folder, 'neg')
+    for folder in [pos_folder, neg_folder]:
+        if os.path.exists(folder)==False:
+            os.makedirs(folder)
+    for root, dirs, files in os.walk(all_folder):
+        for file in files:
+            # print(file)
+
+            if file.endswith(tail):
+                if len(file.split('.'))==2:
+                    if file[-(len(tail)+1)]=='P':
+                        shutil.move(os.path.join(all_folder, file), os.path.join(pos_folder, file))
+                    elif file[-(len(tail)+1)]=='N':
+                        shutil.move(os.path.join(all_folder, file), os.path.join(neg_folder, file))
+def get_file_list(dir, tail, with_tail = False):
+    file_list = []
+    for root, dirs, files in os.walk(dir):
+        for file in files:
+            if file.endswith(tail):
+                if with_tail == True:
+                    file_list.append(file)
+                else:
+                    file_list.append(file.split('.')[0])
+    return(file_list)
+
 def readin_mzml(mzml_path):
     specs = pymzml.run.Reader(mzml_path, obo_version="4.1.33",
         )
@@ -25,12 +53,37 @@ def specify_column(keyword, column_name):
 def parse_file_name(filepath):
     import ntpath
     return(ntpath.basename(filepath))
-def readin_MSDIAL(file):
-    
+def readin_alignment(file):
     df = pd.read_csv(file,
                      sep = '\t',
                      header=[4]
                      )
+    # df = pd.read_csv(file,
+    #                  sep = '\t',
+    #                  header=[4]
+    #                  )
+    # reference_columns = [col for col in std_list_mix.columns if col not in adducts]
+
+    msms = []
+    for index, row in df.iterrows():
+        try:
+            msms.append(row['MS/MS spectrum'].replace(' ', '\n').replace(':', '\t'))
+        except:
+            msms.append(np.NAN)
+    df['peaks']=msms
+    return(df)
+
+
+
+def readin_peak_list(file):
+    df = pd.read_csv(file,
+                     sep = '\t',
+                     # header=[4]
+                     )
+    # df = pd.read_csv(file,
+    #                  sep = '\t',
+    #                  header=[4]
+    #                  )
     # reference_columns = [col for col in std_list_mix.columns if col not in adducts]
 
     # msms = []
