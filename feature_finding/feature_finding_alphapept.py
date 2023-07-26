@@ -82,15 +82,7 @@ def find_feature_alphapept(mzml_file, debug = False):
         query_data, isotope_patterns, isotope_charges, iso_idx, stats, sortindex_, hill_ptrs, hill_data)
     return(feature_table, lookup_idx)
 
-def find_feature(feature_table, mz, rt, mz_column = 'mz', rt_column = 'rt_apex', intensity_column =None):
-    # print('i am nin new')
-    feature_mz_search = quick_search_values(feature_table, mz_column, mz-0.005, mz+0.005, ifsorted=False)
-    # return(feature_mz_search)
-    feature_mzrt_search = quick_search_values(feature_mz_search, rt_column, rt-10/60, rt+10/60, ifsorted=False)
-    if intensity_column != None:
-        feature_mzrt_search.sort_values(by = intensity_column, inplace=True, ascending=False)
-    # print(feature_mzrt_search)
-    return (feature_mzrt_search)
+
 import numpy as np
 import alphapept.performance
 from numba.typed import List

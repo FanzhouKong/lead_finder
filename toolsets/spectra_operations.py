@@ -21,6 +21,15 @@ warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 import toolsets.denoising_related_functions as de
 from toolsets.search import quick_search_values
+def remove_zero_ions(ms1):
+    mass1, intensity1 = break_spectra(ms1)
+    intensity_array = np.array(intensity1)
+    mass_array = np.array(mass1)
+    to_keep = intensity_array > 0
+    mass_1_cleaned = list(mass_array[to_keep])
+    intensity_1_cleaned = list(intensity_array[to_keep])
+    ms1_cleaned = pack_spectra(mass_1_cleaned, intensity_1_cleaned)
+    return ms1_cleaned
 def check_spectrum(msms):
     try:
         mass, intensity = break_spectra(msms)
@@ -260,6 +269,8 @@ def convert_nist_to_string(msms):
         intensity.append(msms[n][1])
     return(pack_spectra(mass,intensity))
 
+def convert_msdial_to_string(msdial_msms):
+    return(msdial_msms.replace(' ', '\n').replace(':', '\t'))
 def convert_scc_to_string(msms):
     mass = []
     intensity = []

@@ -4,6 +4,7 @@ from toolsets.spectra_operations import clean_spectrum, break_spectra, pack_spec
 from toolsets.search import num_search, string_search
 import re
 import os
+import toolsets.spectra_operations as so
 from toolsets.msp_file import read_one_spectrum
 from toolsets.filename import smart_io
 import re
@@ -28,6 +29,17 @@ def split_pos_neg(all_folder, tail = 'mzML'):
                         shutil.move(os.path.join(all_folder, file), os.path.join(pos_folder, file))
                     elif file[-(len(tail)+1)]=='N':
                         shutil.move(os.path.join(all_folder, file), os.path.join(neg_folder, file))
+def prepare_sample_list(filelist):
+    qc_idx = get_list_idx(filelist, 'qc')
+    blk_idx = get_list_idx(filelist, 'blank')
+    fraction_idx = []
+    for i in range(len(filelist)):
+        if i not in qc_idx+blk_idx:
+            fraction_idx.append(i)
+    # print(fraction_idx)
+    # [mylist[i] for i in idx]
+    # return(fraction_idx)
+    return([filelist[i] for i in fraction_idx], [filelist[i] for i in qc_idx], [filelist[i] for i in blk_idx])
 def get_file_list(dir, tail, with_tail = False):
     file_list = []
     for root, dirs, files in os.walk(dir):
@@ -37,7 +49,16 @@ def get_file_list(dir, tail, with_tail = False):
                     file_list.append(file)
                 else:
                     file_list.append(file.split('.')[0])
+    # qc_list = get_list_idx(file_list, 'qc')
     return(file_list)
+def get_list_idx(lst, pattern):
+    pattern = pattern.lower()
+    list_lower = [x.lower() for x in lst]
+    idx = []
+    for i in range(0, len(list_lower)):
+        if pattern in list_lower[i]:
+           idx.append(i)
+    return(idx)
 
 def readin_mzml(mzml_path):
     specs = pymzml.run.Reader(mzml_path, obo_version="4.1.33",
@@ -75,24 +96,17 @@ def readin_alignment(file):
 
 
 
-def readin_peak_list(file):
-    df = pd.read_csv(file,
-                     sep = '\t',
-                     # header=[4]
-                     )
-    # df = pd.read_csv(file,
-    #                  sep = '\t',
-    #                  header=[4]
-    #                  )
-    # reference_columns = [col for col in std_list_mix.columns if col not in adducts]
-
-    # msms = []
-    # for index, row in df.iterrows():
-    #     try:
-    #         msms.append(row['MS/MS spectrum'].replace(' ', '\n').replace(':', '\t'))
-    #     except:
-    #         msms.append(np.NAN)
-    # df['peaks']=msms
+def readin_peak_list(file, msial = False):
+    if msial == True:
+        df = pd.read_csv(file,
+                         sep = '\t',
+                         # header=[4]
+                         )
+    else:
+        df = pd.read_csv(file,
+                         sep = '\t',
+                         # header=[4]
+                         )
     return(df)
 def read_msp_files(msp_path, clean = True, if_rt = False):
 
@@ -240,9 +254,9 @@ def export_ms_sirius(row, output):
     #     else:
     #         charge = '1-'
     mass_1, intensity_1 = so.break_spectra(row['ms1'])
-    pep_mass =de.find_parention(mass_1,intensity_1, row['PRECURSORMZ'])
+    pep_mass =row['Precursor m/z']
     entry = ''
-    entry = entry + '>compound '+str(row['NAME'])+'\n'
+    entry = entry + '>compound '+str(row['reference_file'])+'_'+str(row['PeakID'])+'\n'
     entry = entry + '>parentmass '+str((pep_mass))+'\n'
     entry = entry + '>ionization '+str((row['Adduct']))+'\n'
     entry = entry +'\n'
@@ -259,35 +273,41 @@ def export_ms_sirius(row, output):
 
 
 
-def export_mgf_sirius(inputfile, output):
+def export_mgf_sirius(row, output_dir):
 
     entry = ''
-    for index, row in inputfile.iterrows():
+    if row['Adduct'][-1]=='+':
+        charge = '1+'
+    else:
+        charge = '1-'
+    pep_mass =row['Precursor m/z']
+    # mass_1, intensity_1 = so.break_spectra(row['ms1'])
+    output = os.path.join(output_dir, row['reference_file']+'+'+str(row['PeakID'])+'.mgf')
+    # ms1
+    entry = entry + 'BEGIN IONS'+'\n'
+    entry = entry + 'PEPMASS='+str(pep_mass)+'\n'
+    entry = entry + 'MSLEVEL=1'+'\n'
+    entry = entry+'CHARGE=' + charge +'\n'
+    entry = entry+(row['ms1'])+'\n'
+    entry = entry + 'END IONS'+'\n'
 
-        mass_1, intensity_1 = so.break_spectra(row['ms1'])
-        if row['Adduct'][-1]=='+':
-            charge = '1+'
-        else:
-            charge = '1-'
-        pep_mass =de.find_parention(mass_1,intensity_1, row['PRECURSORMZ'])
-        # output = os.path.join(output_dir, row['NAME']+'.mgf')
-        # ms1
-        entry = entry + 'BEGIN IONS'+'\n'
-        entry = entry + 'PEPMASS='+str(pep_mass)+'\n'
-        entry = entry + 'MSLEVEL=1'+'\n'
-        entry = entry+'CHARGE=' + charge +'\n'
-#         entry = entry+'Adduct=' +str(row['adduct']) +'\n'
-        entry = entry+(row['ms1'])+'\n'
-        entry = entry + 'END IONS'+'\n'
-        entry = entry +'\n'
-    #     ms2
-        entry = entry + 'BEGIN IONS'+'\n'
-        entry = entry + 'PEPMASS='+str(pep_mass)+'\n'
-        entry = entry + 'MSLEVEL=2'+'\n'
-        entry = entry+'CHARGE=' + charge +'\n'
-        entry = entry+(row['msms'])+'\n'
-        entry = entry + 'END IONS'+'\n'
-    text_file = open(output+'.mgf', "w",encoding='utf-8')
+    entry = entry +'\n'
+    entry = entry + 'BEGIN IONS'+'\n'
+    entry = entry + 'PEPMASS='+str(pep_mass)+'\n'
+    entry = entry + 'MSLEVEL=2'+'\n'
+    entry = entry+'CHARGE=' + charge +'\n'
+    entry = entry+(row['msms'])+'\n'
+    entry = entry + 'END IONS'+'\n'
+    #     entry = entry +'\n'
+    # #     ms2
+    #     entry = entry + 'BEGIN IONS'+'\n'
+    #     entry = entry + 'PEPMASS='+str(pep_mass)+'\n'
+    #     entry = entry + 'MSLEVEL=2'+'\n'
+    #     entry = entry+'CHARGE=' + charge +'\n'
+    #     entry = entry+(row['msms'])+'\n'
+    #     entry = entry + 'END IONS'+'\n'
+
+    text_file = open(output, "w",encoding='utf-8')
     text_file.write(entry)
     text_file.close()
         # break

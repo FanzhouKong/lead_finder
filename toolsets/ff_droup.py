@@ -121,7 +121,7 @@ def connect_peaks(peak_list, target_peak_idx, intensity_list, rt_list):
           break
     # apex_peak[1]=np.argmax(intensity_list[apex_peak[0]:apex_peak[2]])+apex_peak[0]
     return(tuple(apex_peak))
-def process_mzml(mzml_path, parent_dir =  None, rt_max = 5,if_mix = True, with_ms1 = True):
+def process_mzml(mzml_path, parent_dir =  None, rt_max = 10,if_mix = True, with_ms1 = True):
     if if_mix == True and parent_dir != None:
         mix = mzml_path
         mzml_base_name = helpers.find_files(parent_dir, mix)
@@ -130,6 +130,9 @@ def process_mzml(mzml_path, parent_dir =  None, rt_max = 5,if_mix = True, with_m
         mzml_path = os.path.join(parent_dir,mzml_path)
         # print(mzml_path)
         # print('i finished loading mzml file')
+    if mzml_path[-5:]!='.mzML':
+        mzml_path = mzml_path+'.mzML'
+
     try:
         ms1_2 = load_mzml_data(mzml_path, rt_max = rt_max)
     except:
