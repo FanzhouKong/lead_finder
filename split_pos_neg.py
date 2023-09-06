@@ -18,7 +18,7 @@ for root, dirs, files in os.walk(all_folder):
         if file.endswith('.mzML'):
             if len(file.split('.'))==2:
                 base_name = file.split('.')[0]
-                print(base_name)
+                # print(base_name)
                 if base_name[-1]=='P':
                     shutil.move(os.path.join(all_folder, file), os.path.join(pos_folder, file))
                 elif base_name[-1]=='N':

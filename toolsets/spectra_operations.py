@@ -138,7 +138,6 @@ def bin_spectrum(msms, precursormz=0,tol = 0.02):
     #     return(normalize_spectra(msms_bin))
     # else:
     #     return(msms_bin)
-
 def weighted_average_spectra(data_subset, typeofmsms = 'peaks', mass_error = 0.02, weight_col = 'ms1_precursor_intensity'):
     # if(len(data_subset)<2):
     #     print("you cannot make weighted average spectra using only 1 spectra")
@@ -166,43 +165,75 @@ def weighted_average_spectra(data_subset, typeofmsms = 'peaks', mass_error = 0.0
     if len(mass_com)==0:
         return(np.NAN)
     bin_left = pd.DataFrame({'mass': mass_com, 'intensity': intensity_com, 'ms1_precursor_intensity':ms1_intensity})
-    bin_left.sort_values(by='mass', ascending=True, inplace=True)
-    # return(bin_left)
-    # bin_left['adjusted_intensity']=bin_left['intensity']*bin_left['ms1_precursor_intensity_ratio']
+    bin_left['intensity_weighted']=[x*y/sum for x, y in zip(bin_left['intensity'], bin_left['ms1_precursor_intensity'])]
+    bin_left.sort_values(by = 'mass', ascending=True, inplace=True)
+    msms_weighted = bin_spectrum(pack_spectra(bin_left['mass'].tolist(), bin_left['intensity_weighted'].tolist()))
+    return msms_weighted
 
-    # return(bin_left)
-    # msms_binned = pack_spectra(bin_left['mass'].tolist(), bin_left['adjusted_intensity'].tolist())
-    # msms_binned = normalize_spectra(msms_binned)
-    # return(bin_left)
-    mass_consensus = []
-    intensity_consensus =[]
-    # return(bin_left)
-    # print('i am in new method')
-    while(len(bin_left)>0):
-        binn, bin_left = make_bin(bin_left, mass_error)
-        mass_temp = 0
-        intensity_temp = 0
-        denominator = binn['ms1_precursor_intensity'].sum()
-        for index, row in binn.iterrows():
-            mass_temp = mass_temp+row['mass']*row['ms1_precursor_intensity']
-            intensity_temp = intensity_temp+row['intensity']*row['ms1_precursor_intensity']
-        mass_consensus.append(mass_temp/denominator)
-        intensity_consensus.append(intensity_temp/denominator)
-
-
-        # if len(binn)>1:
-        #     temp_mass = (binn['mass']*binn['ms1_precursor_intensity_ratio']).sum()
-        #     temp_intensity =(binn['intensity']*binn['ms1_precursor_intensity_ratio']).sum()
-        # else:
-        #     temp_mass = binn['mass'].sum()
-        #     temp_intensity = (binn['intensity']*binn['ms1_precursor_intensity_ratio']).sum()
-        # mass_consensus.append(round(temp_mass,6))
-        # intensity_consensus.append(round(temp_intensity,6))
-
-    msms_consensus = sort_spectrum(pack_spectra(mass_consensus, intensity_consensus))
-
-    msms_consensus = bin_spectrum(msms_consensus, tol = 0.02)
-    return(msms_consensus)
+# def weighted_average_spectra(data_subset, typeofmsms = 'peaks', mass_error = 0.02, weight_col = 'ms1_precursor_intensity'):
+#     # if(len(data_subset)<2):
+#     #     print("you cannot make weighted average spectra using only 1 spectra")
+#     #     return(np.NAN)
+#     # precursormz = float(data_subset.iloc[0]['reference_precursor_mz'])
+#     # msms_com = []
+#     mass_com = []
+#     intensity_com = []
+#     ms1_intensity =[]
+#     sum = 0
+#     for index, row in data_subset.iterrows():
+#         if (row[typeofmsms])==(row[typeofmsms]) and row[weight_col]!=0:
+#             mass_temp, intensity_temp = break_spectra(row[typeofmsms])
+#         else:
+#             continue
+#         sum = sum+row[weight_col]
+#         # msms_bin_temp =normalize_spectra(row[typeofmsms])
+#         # msms_bin_temp = bin_spectrum(row[typeofmsms])
+#
+#         mass_com.extend(mass_temp)
+#         intensity_com.extend(intensity_temp)
+#         # num_peaks_com.extend(len(mass_temp))
+#         ms1_intensity.extend([row[weight_col]]*len(mass_temp))# five places to change
+#         # sum = sum +row['intensity']
+#     if len(mass_com)==0:
+#         return(np.NAN)
+#     bin_left = pd.DataFrame({'mass': mass_com, 'intensity': intensity_com, 'ms1_precursor_intensity':ms1_intensity})
+#     bin_left.sort_values(by='mass', ascending=True, inplace=True)
+#     # return(bin_left)
+#     # bin_left['adjusted_intensity']=bin_left['intensity']*bin_left['ms1_precursor_intensity_ratio']
+#
+#     # return(bin_left)
+#     # msms_binned = pack_spectra(bin_left['mass'].tolist(), bin_left['adjusted_intensity'].tolist())
+#     # msms_binned = normalize_spectra(msms_binned)
+#     # return(bin_left)
+#     mass_consensus = []
+#     intensity_consensus =[]
+#     # return(bin_left)
+#     # print('i am in new method')
+#     while(len(bin_left)>0):
+#         binn, bin_left = make_bin(bin_left, mass_error)
+#         mass_temp = 0
+#         intensity_temp = 0
+#         denominator = binn['ms1_precursor_intensity'].sum()
+#         for index, row in binn.iterrows():
+#             mass_temp = mass_temp+row['mass']*row['ms1_precursor_intensity']
+#             intensity_temp = intensity_temp+row['intensity']*row['ms1_precursor_intensity']
+#         mass_consensus.append(mass_temp/denominator)
+#         intensity_consensus.append(intensity_temp/denominator)
+#
+#
+#         # if len(binn)>1:
+#         #     temp_mass = (binn['mass']*binn['ms1_precursor_intensity_ratio']).sum()
+#         #     temp_intensity =(binn['intensity']*binn['ms1_precursor_intensity_ratio']).sum()
+#         # else:
+#         #     temp_mass = binn['mass'].sum()
+#         #     temp_intensity = (binn['intensity']*binn['ms1_precursor_intensity_ratio']).sum()
+#         # mass_consensus.append(round(temp_mass,6))
+#         # intensity_consensus.append(round(temp_intensity,6))
+#
+#     msms_consensus = sort_spectrum(pack_spectra(mass_consensus, intensity_consensus))
+#
+#     msms_consensus = bin_spectrum(msms_consensus, tol = 0.02)
+#     return(msms_consensus)
 
 
 

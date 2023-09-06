@@ -3,7 +3,44 @@ from toolsets.search import quick_search_values, string_search
 import pandas as pd
 from tqdm import tqdm
 import os
+
 def align(file_paths, master_list_input):
+    master_list = master_list_input.copy()
+    master_list_mz_sorted = master_list.sort_values(by = 'pmz', ascending=True)
+    master_list_rt_sorted = master_list.sort_values(by = 'rt', ascending=True)
+    isotopic_state = np.repeat('unknown', len(master_list))
+    for file in tqdm(file_paths):
+        file_temp = pd.read_csv(file)
+        intensity_temp = np.repeat(0, len(master_list))
+        for index, row in file_temp.iterrows():
+            rt_matched = quick_search_values(master_list_rt_sorted, 'rt', row['RT_adjusted']-2/60, row['RT_adjusted']+2/60)
+            mz_matched = quick_search_values(master_list_mz_sorted, 'pmz', row['Precursor m/z']-0.005, row['Precursor m/z']+0.005)
+            lst = list(set(rt_matched.index) & set(mz_matched.index))
+            if len(lst)>0:# there is match
+                intensity_temp[lst]=intensity_temp[lst]+row['Height']
+                if row['Isotope'] =='M + 0':
+                    for i in lst:
+                        if isotopic_state[i]!='M + 0':
+                            isotopic_state[i]='M + 0'
+
+
+            master_list[os.path.basename(file).split('.')[0]]=intensity_temp
+            # feature_temp.drop_duplicates(subset = ['PeakID'])
+            # if len(feature_temp)>0:
+            #     feature_temp.sort_values(by = ['Height'], inplace = True)
+            #     intensity_temp.append(feature_temp.iloc[0]['Height'])
+            #     if 'M + 0' in feature_temp['Isotope'].unique() and isotopic_state[index]!= 'M + 0':
+            #         # update isotopic state
+            #         isotopic_state[index]= 'M + 0'
+            # else:
+            #     intensity_temp.append(0)
+
+    master_list['isotopic_state']=isotopic_state
+    return(master_list)
+
+
+
+def align_legacy(file_paths, master_list_input):
     master_list = master_list_input.copy()
     isotopic_state = np.repeat('unknown', len(master_list))
     for file in tqdm(file_paths):
@@ -61,7 +98,8 @@ def initilize_pmz_rt_list(qc_paths,
         rt_list = qc_seed['RT_adjusted'].tolist()
         # iso_state = qc_seed['Isotope'].tolist()
         master_list = pd.DataFrame(zip(pmz_list, rt_list), columns=['pmz', 'rt'])
-        print('length_of_master list: ', str(len(master_list)))
+        # return(master_list)
+        # print('length_of_master list: ', str(len(master_list)))
         # return(qc_seed)
         if len(qc_rest)>0:
             for qc in qc_rest:
@@ -76,7 +114,7 @@ def initilize_pmz_rt_list(qc_paths,
                         pmz_list.append(row['Precursor m/z'])
                         rt_list.append(row['RT_adjusted'])
 
-        master_list = pd.DataFrame(zip(pmz_list, rt_list), columns=['pmz', 'rt'])
+                master_list = pd.DataFrame(zip(pmz_list, rt_list), columns=['pmz', 'rt'])
         print('length_of updated master list: ', str(len(master_list)))
 
     elif mode == 'exclusive':
@@ -112,8 +150,15 @@ def initilize_pmz_rt_list(qc_paths,
     master_list.reset_index(inplace=True, drop = True)
     return master_list
 def drop_duplicate_features(peak_list):
-    peak_list['key']=peak_list['RT_adjusted'].astype(str)+"_"+peak_list['Precursor m/z'].astype(str)
+    peak_list['key']=peak_list['RT_adjusted'].astype(str)+"_"+peak_list['Precursor m/z'].astype(str)+peak_list['Height'].astype(str)
+    # peak_list['iso_num']= peak_list['Isotope'].str[-1].astype(float)
+    # peak_list_return = pd.DataFrame()
+    # for key in peak_list['key'].unique():
+    #     temp = string_search(peak_list, 'key', key, reset_index=False)
+    #     if len(temp)>1:
+    #         temp.sort_values(by = 'iso_num', ascending=True, inplace=True)
     peak_list.drop_duplicates(subset = ['key'], inplace = True)
+
     peak_list.reset_index(inplace=True, drop = True)
     return(peak_list)
 def determine_seed_idx(qc_paths, mode = 'inclusive'):
@@ -121,6 +166,7 @@ def determine_seed_idx(qc_paths, mode = 'inclusive'):
     for qc in qc_paths:
         temp= pd.read_csv(qc)
         feature_num.append(len(temp))
+    # print(feature_num)
     if mode == 'inclusive':
         return(np.argmax(feature_num))
     else:
@@ -132,7 +178,7 @@ def find_istd(alignmentt, istd_info, mz_column = 'pmz', rt_column = 'rt'):
     for index, row in istd_info.iterrows():
         # mz =
         # rt = row['RT_suggested']
-        feature_mz_search = quick_search_values(alignment, mz_column, row['Precursor m/z']-0.002, row['Precursor m/z']+0.002, ifsorted=False)
+        feature_mz_search = quick_search_values(alignment, mz_column, row['Precursor m/z']-0.005, row['Precursor m/z']+0.005, ifsorted=False)
         feature_mzrt_search = quick_search_values(feature_mz_search, rt_column, row['RT_suggested']-10/60, row['RT_suggested']+10/60, ifsorted=False)
         istd_idx.extend(feature_mzrt_search.index)
     # return(istd_idx)
@@ -168,15 +214,21 @@ def clean_bad_features(alignment_result):
     alignment_result_refined.reset_index(inplace = True, drop = True)
     return(alignment_result_refined)
 from toolsets.file_io import get_list_idx
-def filter_with_blank(alignment_result, qc_labes, blank_labels, threshold = 1):
+def filter_with_blank(alignment_result, qc_labes, blank_labels, threshold = 1, mode = 'median'):
     alignment = alignment_result.copy()
     alignment_result_qcs = alignment[qc_labes]
     alignment_result_blk = alignment[blank_labels]
     bad_feature_idx = []
     for index, row in alignment.iterrows():
-        if alignment_result_qcs.loc[index].median()<alignment_result_blk.loc[index].max()*100/threshold:
+        if mode == 'median':
+            toggle = alignment_result_qcs.loc[index].median()<alignment_result_blk.loc[index].max()*100/threshold
+        elif mode =='max':
+            toggle = alignment_result_qcs.loc[index].max()<alignment_result_blk.loc[index].max()*100/threshold
+        if row['feature_type']!='istd' and toggle == True:
             bad_feature_idx.append(index)
     alignment.drop(bad_feature_idx, inplace = True)
+    alignment.drop(blank_labels, axis = 1, inplace = True)
+    alignment.reset_index(inplace=True, drop = True)
     return(alignment)
     # check if blank labels is given
     # if blank_lables is None:

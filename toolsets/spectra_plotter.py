@@ -323,7 +323,7 @@ def ms2_clean_noise(msms_1, msms_2, pmz1 = None, lower=None, upper=None, savepat
         plt.vlines(x = msms2["m/z"][i], ymin = 0, ymax = msms2["normalized_intensity"][i],color = 'blue', linewidth=3)
     if pmz1 != None:
         plt.vlines(x = pmz1, ymin = 0, ymax = 100,color = 'grey', linestyle='dashed')
-    # plt.legend()
+    # pltalegend()
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
 

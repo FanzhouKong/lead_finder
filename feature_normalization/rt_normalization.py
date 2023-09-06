@@ -2,22 +2,23 @@ import numpy as np
 import pandas as pd
 from toolsets.search import quick_search_values
 from tqdm import tqdm
-from toolsets.file_io import readin_peak_list
+from toolsets.file_io import readin_peak_list, get_file_list
 from sklearn.ensemble import RandomForestRegressor
 import os
-def rt_normalization(all_lst, rt_seed, istd_info, peak_list_dir, normalized_peak_list_dir):
+def rt_normalization(peak_list_dir, rt_seed, istd_info, normalized_peak_list_dir, result_dir):
+    all_lst = get_file_list(peak_list_dir, '.txt')
     rt_report = istd_info.copy()
     rt_report = rt_report[['compound_name', 'Precursor m/z']]
     intensity_report = istd_info.copy()
     intensity_report= intensity_report[['compound_name', 'Precursor m/z']]
-    seed_file =readin_peak_list(os.path.join(peak_list_dir, rt_seed+'.txt'), msial=True)
+    seed_file =readin_peak_list(os.path.join(peak_list_dir, rt_seed+'.txt'), msial=False)
     # seed_file =readin_peak_list(os.path.join(peak_list_dir, rt_seed+'.txt'), msial=True)
     seed_rt, seed_intensity = find_istd(istd_info, seed_file)
     istd_found = pd.DataFrame(zip(seed_rt, istd_info['Precursor m/z']), columns=['RT_suggested','Precursor m/z'])
     # return(istd_found)
     for file in tqdm(all_lst, total = len(all_lst)):
         current_file = os.path.join(peak_list_dir, file+'.txt')
-        test_file = readin_peak_list(current_file, msial=True)
+        test_file = readin_peak_list(current_file, msial=False)
         if file != rt_seed:
             raw_rt, raw_intensity = find_istd(istd_found, test_file)
             rt_report[file]=raw_rt
@@ -39,7 +40,13 @@ def rt_normalization(all_lst, rt_seed, istd_info, peak_list_dir, normalized_peak
             test_file.insert(test_file.columns.get_loc('RT (min)'), 'RT_adjusted', test_file['RT (min)'])
         test_file.to_csv(os.path.join(normalized_peak_list_dir, file+'.csv'), index = False)
         # return(rt_report, intensity_report)
-    return(rt_report, intensity_report)
+    cv= []
+    for index, row in intensity_report.iterrows():
+        cv.append(row[2:].std()/row[2:].mean()*100)
+    intensity_report.insert(2, 'cv', cv)
+    rt_report.to_csv(os.path.join(result_dir, 'rt_report.csv'), index= False)
+    intensity_report.to_csv(os.path.join(result_dir, 'intensity_resport.csv'), index= False)
+    # return(rt_report, intensity_report)
 
 
 

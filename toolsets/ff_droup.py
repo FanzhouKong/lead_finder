@@ -122,21 +122,21 @@ def connect_peaks(peak_list, target_peak_idx, intensity_list, rt_list):
     # apex_peak[1]=np.argmax(intensity_list[apex_peak[0]:apex_peak[2]])+apex_peak[0]
     return(tuple(apex_peak))
 def process_mzml(mzml_path, parent_dir =  None, rt_max = 10,if_mix = True, with_ms1 = True):
+
     if if_mix == True and parent_dir != None:
         mix = mzml_path
         mzml_base_name = helpers.find_files(parent_dir, mix)
         mzml_path = os.path.join(parent_dir, mzml_base_name)
-    if if_mix == False and parent_dir!= None:
+    if if_mix == False and parent_dir is not None:
         mzml_path = os.path.join(parent_dir,mzml_path)
-        # print(mzml_path)
-        # print('i finished loading mzml file')
     if mzml_path[-5:]!='.mzML':
         mzml_path = mzml_path+'.mzML'
-
-    try:
-        ms1_2 = load_mzml_data(mzml_path, rt_max = rt_max)
-    except:
-        print('the mzml file or mix name you passed might be wrong')
+    # print(mzml_path)
+    ms1_2 = load_mzml_data(mzml_path, rt_max = rt_max)
+    # try:
+    #
+    # except:
+    #     print('the mzml file or mix name you passed might be wrong')
         # raise Error
     ms2 = string_search(ms1_2, 'ms_level', 2)
     
@@ -290,8 +290,15 @@ def load_mzml_data(file: str, n_most_abundant=400, rt_max = 5) -> tuple:
             break
 
         to_keep = intensities > 0
-        masses = masses[to_keep]
-        intensities = intensities[to_keep]
+        # return_mass = masses
+        try:
+            masses = masses[to_keep]
+            intensities = intensities[to_keep]
+            # intensities = intensities[to_keep]
+            # masses = masses[to_keep]
+        except:
+            continue
+
         if ms_order == 1:
             cycle = cycle+1
         cycles.append(cycle)

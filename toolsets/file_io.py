@@ -100,7 +100,7 @@ def readin_peak_list(file, msial = False):
     if msial == True:
         df = pd.read_csv(file,
                          sep = '\t',
-                         # header=[4]
+                         header=[4]
                          )
     else:
         df = pd.read_csv(file,
@@ -272,7 +272,37 @@ def export_ms_sirius(row, output):
     text_file.close()
 
 
+def export_mgf_shortlist(row, output_dir, mode = '+'):
 
+    entry = ''
+    if mode=='+':
+        charge = '1+'
+    else:
+        charge = '1-'
+    pep_mass =row['m/z']
+    # mass_1, intensity_1 = so.break_spectra(row['ms1'])
+    output = os.path.join(output_dir, str(row['rank'])+'_'+str(row['m/z'])+'_'+
+                          str(np.round(row['rt'],2))+'.mgf')
+    # ms1
+    entry = entry + 'BEGIN IONS'+'\n'
+    entry = entry + 'PEPMASS='+str(pep_mass)+'\n'
+    entry = entry + 'MSLEVEL=1'+'\n'
+    entry = entry+'CHARGE=' + charge +'\n'
+    entry = entry+(row['ms1'])+'\n'
+    entry = entry + 'END IONS'+'\n'
+
+    entry = entry +'\n'
+    entry = entry + 'BEGIN IONS'+'\n'
+    entry = entry + 'PEPMASS='+str(pep_mass)+'\n'
+    entry = entry + 'MSLEVEL=2'+'\n'
+    entry = entry+'CHARGE=' + charge +'\n'
+    entry = entry+(row['msms'])+'\n'
+    entry = entry + 'END IONS'+'\n'
+
+
+    text_file = open(output, "w",encoding='utf-8')
+    text_file.write(entry)
+    text_file.close()
 def export_mgf_sirius(row, output_dir):
 
     entry = ''
@@ -298,14 +328,7 @@ def export_mgf_sirius(row, output_dir):
     entry = entry+'CHARGE=' + charge +'\n'
     entry = entry+(row['msms'])+'\n'
     entry = entry + 'END IONS'+'\n'
-    #     entry = entry +'\n'
-    # #     ms2
-    #     entry = entry + 'BEGIN IONS'+'\n'
-    #     entry = entry + 'PEPMASS='+str(pep_mass)+'\n'
-    #     entry = entry + 'MSLEVEL=2'+'\n'
-    #     entry = entry+'CHARGE=' + charge +'\n'
-    #     entry = entry+(row['msms'])+'\n'
-    #     entry = entry + 'END IONS'+'\n'
+
 
     text_file = open(output, "w",encoding='utf-8')
     text_file.write(entry)
