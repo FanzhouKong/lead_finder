@@ -11,7 +11,9 @@ def rt_normalization(peak_list_dir, rt_seed, istd_info, normalized_peak_list_dir
     rt_report = rt_report[['compound_name', 'Precursor m/z']]
     intensity_report = istd_info.copy()
     intensity_report= intensity_report[['compound_name', 'Precursor m/z']]
-    seed_file =readin_peak_list(os.path.join(peak_list_dir, rt_seed+'.txt'), msial=False)
+    if rt_seed.endswith('.txt')==False:
+        rt_seed = rt_seed+'.txt'
+    seed_file =readin_peak_list(os.path.join(peak_list_dir, rt_seed), msial=False)
     # seed_file =readin_peak_list(os.path.join(peak_list_dir, rt_seed+'.txt'), msial=True)
     seed_rt, seed_intensity = find_istd(istd_info, seed_file)
     istd_found = pd.DataFrame(zip(seed_rt, istd_info['Precursor m/z']), columns=['RT_suggested','Precursor m/z'])
@@ -36,8 +38,8 @@ def rt_normalization(peak_list_dir, rt_seed, istd_info, normalized_peak_list_dir
                 offset_pred = model_temp.predict(np.array(test_file['RT (min)']).reshape(-1,1))
                 normalized_rt = [off+raw for (off, raw) in zip(offset_pred, test_file['RT (min)'])]
                 test_file.insert(test_file.columns.get_loc('RT (min)'), 'RT_adjusted', normalized_rt)
-        else:
-            test_file.insert(test_file.columns.get_loc('RT (min)'), 'RT_adjusted', test_file['RT (min)'])
+            else:
+                test_file.insert(test_file.columns.get_loc('RT (min)'), 'RT_adjusted', test_file['RT (min)'])
         test_file.to_csv(os.path.join(normalized_peak_list_dir, file+'.csv'), index = False)
         # return(rt_report, intensity_report)
     cv= []
@@ -79,6 +81,10 @@ def find_istd(istd_info, sample_file, rt_column = 'RT (min)', return_adjusted_rt
                 seed_rt.append(istd_temp.iloc[0]['RT_adjusted'])
             seed_intensity.append(istd_temp.iloc[0]['Height'])
         else:
+            # istd_temp = find_feature(sample_file, mz = row['Precursor m/z 2'], rt = row['RT_suggested'], mz_column= 'Precursor m/z', rt_column=rt_column)
+            # if istd_temp>0:
+            #     istd_temp.sort_values(by = 'Height', ascending=False, inplace=True)
+
             seed_rt.append(np.NAN)
             seed_intensity.append(np.NAN)
     if echo==True:

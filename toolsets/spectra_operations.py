@@ -542,7 +542,8 @@ def normalize_spectrum(msms):
     # intensity_fl = [float(x) for x in intensity]
     if max([float(x) for x in intensity]) == 0:
         return(np.NaN)
-    intensity_rel = [number / sum([float(x) for x in intensity]) for number in [float(y) for y in intensity]]
+    intensity_rel = [x/np.sum(intensity) for x in intensity]
+    # intensity_rel = [number / sum([float(x) for x in intensity]) for number in [float(y) for y in intensity]]
     intensity_rel = [round(number, 8) for number in intensity_rel]
     return(pack_spectra(mass, intensity_rel))
 

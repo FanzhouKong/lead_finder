@@ -13,7 +13,8 @@ import numpy as np
 from tqdm import tqdm
 from fuzzywuzzy import fuzz
 import pymzml
-def split_pos_neg(all_folder, tail = 'mzML'):
+def split_pos_neg(all_folder, tail = '.mzML'):
+    print(all_folder)
     pos_folder = os.path.join(all_folder, 'pos')
     neg_folder = os.path.join(all_folder, 'neg')
     for folder in [pos_folder, neg_folder]:
@@ -22,16 +23,20 @@ def split_pos_neg(all_folder, tail = 'mzML'):
     for root, dirs, files in os.walk(all_folder):
         for file in files:
             # print(file)
-
             if file.endswith(tail):
+                # print('i am in if')
                 if len(file.split('.'))==2:
                     if file[-(len(tail)+1)]=='P':
+                        # print('i am in other if')
                         shutil.move(os.path.join(all_folder, file), os.path.join(pos_folder, file))
                     elif file[-(len(tail)+1)]=='N':
                         shutil.move(os.path.join(all_folder, file), os.path.join(neg_folder, file))
 def prepare_sample_list(filelist):
+    # print('i am in new')
     qc_idx = get_list_idx(filelist, 'qc')
-    blk_idx = get_list_idx(filelist, 'blank')
+    blk_idx_long = get_list_idx(filelist, 'blank')
+    blk_idx_short = get_list_idx(filelist, 'blk')
+    blk_idx = list(set(blk_idx_long+(blk_idx_short)))
     fraction_idx = []
     for i in range(len(filelist)):
         if i not in qc_idx+blk_idx:
@@ -279,9 +284,9 @@ def export_mgf_shortlist(row, output_dir, mode = '+'):
         charge = '1+'
     else:
         charge = '1-'
-    pep_mass =row['m/z']
+    pep_mass =row['pmz']
     # mass_1, intensity_1 = so.break_spectra(row['ms1'])
-    output = os.path.join(output_dir, str(row['rank'])+'_'+str(row['m/z'])+'_'+
+    output = os.path.join(output_dir, str(row['rank'])+'_'+str(row['pmz'])+'_'+
                           str(np.round(row['rt'],2))+'.mgf')
     # ms1
     entry = entry + 'BEGIN IONS'+'\n'

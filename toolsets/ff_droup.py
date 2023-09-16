@@ -200,7 +200,7 @@ def get_EIC_list(ms1, pmz, step = 0.005):
         rt_list.append(row['rt'])
         intensity_list.append(_extract_ms1_intensity(row['peaks'], mz_lower=pmz-step, mz_upper=pmz+step))
     return(rt_list, intensity_list)
-def auto_EIC(mix, parent_dir,pmz, vlines_location_1=[], vlines_location_2=[] , rt_start = -1, rt_end = -1, rt_max = 5):
+def auto_EIC(mix, parent_dir,pmz, vlines_location_1=[], vlines_location_2=[] , rt_start = -1, rt_end = -1, rt_max = 12):
     ms1, ms2 = process_mzml(mix, parent_dir, if_mix=True, with_ms1=True, rt_max = rt_max)
     rt_list, intensity_list = get_EIC_list(ms1, pmz)
     EIC(rt_list, intensity_list, vlines_location_1=vlines_location_1,vlines_location_2 = vlines_location_2, rt_start=rt_start, rt_end=rt_end)

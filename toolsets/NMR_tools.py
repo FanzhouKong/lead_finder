@@ -12,21 +12,23 @@ from scipy import interpolate
 import toolsets.spectra_operations as so
 import toolsets.spectra_plotter as sp
 step = 0.000275
-def nmr_processing(std_smoothed, fraction_smoothed, if_all = False):
+def nmr_processing(std_smoothed, fraction_smoothed):
     model_cluster, cluster_shift_statistics = get_model_cluster(std_smoothed, fraction_smoothed)
     fraction_peaks = get_all_peaks(fraction_smoothed)
     matched_statistics = get_matched_statistics(model_cluster, fraction_smoothed)
-    ratio = matched_statistics['ratio'].median()
+    ratio = matched_statistics['ratio'].min()
     # print(ratio)
     std_smoothed_c = std_smoothed.copy()
     std_smoothed_c['intensity_adjusted']=std_smoothed_c['intensity_adjusted']*ratio
     # ax = nmr_stack(fraction_smoothed, std_smoothed_c)
     cluster_shift_statistics['simulated_area']=cluster_shift_statistics['area']*ratio
+    cluster_shift_statistics['simulated_intensity']=cluster_shift_statistics['intensity']*ratio
     # plt.close()
     matched = []
     for index, row in cluster_shift_statistics.iterrows():
-        region_peaks = quick_search_values(fraction_peaks, 'peak_apex', row['peak_apex']-0.03, row['peak_apex']+0.03, ifsorted=True)
-        if region_peaks['area'].max()*1.1>row['simulated_area']:
+        region_peaks = quick_search_values(fraction_peaks, 'peak_apex', row['peak_apex']+row['shift']-0.02, row['peak_apex']+row['shift']+0.02, ifsorted=False)
+        # if region_peaks['area'].max()*1.2>row['simulated_area']:
+        if region_peaks['intensity'].max()*1.4>row['simulated_intensity']:
             matched.append(True)
         else:
             matched.append(False)
@@ -70,7 +72,7 @@ def readin_nmr_profile(path, dir=None, if_smooth = True):
     else:
 
         return(data)
-def spline_smooth(x_points, y_points, n = 15):
+def spline_smooth(x_points, y_points, n = 5):
     tck = interpolate.splrep(x_points, y_points)
     x_fit = np.arange(0.4, 9, 0.000275)
     y_fitted = interpolate.splev(x_fit, tck)
@@ -85,7 +87,7 @@ def spline_smooth(x_points, y_points, n = 15):
     df.dropna(subset = ['intensity_adjusted'], inplace=True)
     df.reset_index(inplace=True, drop=True)
     return(df)
-def nmr_stack(profile1_input, profile2_input, intensity_col = 'intensity_adjusted',vline_location_upper = None,cs_start =None, cs_end = None, shift2 = None, save_path = None):
+def nmr_stack(profile1_input, profile2_input, label1 ='fraction',label2='simulated_signal',intensity_col = 'intensity_adjusted',vline_location_upper = None,cs_start =None, cs_end = None, shift2 = None, save_path = None):
     profile1 = profile1_input.copy()
     profile2 = profile2_input.copy()
     fig = plt.figure(figsize = (10, 8))#43
@@ -99,17 +101,20 @@ def nmr_stack(profile1_input, profile2_input, intensity_col = 'intensity_adjuste
         # ax.set_xlim(cs_start,cs_end)
     # intensity_normalized1 = profile1[intensity_col] / profile1[intensity_col].max()  * 100.0
     # intensity_normalized2 = -(profile2[intensity_col] / profile2[intensity_col].max()  * 100.0)
-    sns.lineplot(x= profile1['cs'], y = profile1[intensity_col], color = 'blue', label = 'spike_fraction')
-    sns.lineplot(x= profile2['cs'], y = profile2[intensity_col], color = 'red', label = 'simulated_reference')
+    sns.lineplot(x= profile1['cs'], y = profile1[intensity_col], color = 'blue', label = label1)
+    sns.lineplot(x= profile2['cs'], y = profile2[intensity_col], color = 'red', label = label2)
     ax.legend()
     # intensity_reference =
     if profile2[intensity_col].max()>profile1[intensity_col].max():
-        ylim_max = profile2[intensity_col].max()
+        ylim_max = profile2[intensity_col].max()*1.1
+
     else:
-        ylim_max = profile1[intensity_col].max()
-    ax.set_ylim(0, +ylim_max)
+        ylim_max = profile1[intensity_col].max()*1.1
+    # ax.set_ylim(0, +ylim_max)
     # p = peaks[350]
     ax.grid(None)
+    ax.set_facecolor('none')
+    plt.tight_layout()
     if vline_location_upper is not None:
         for loc in vline_location_upper:
             plt.vlines(x = loc  , ymin = 0, ymax =ylim_max, colors = 'orange')
@@ -151,11 +156,11 @@ def nmr_plot(profile, intensity_col = 'intensity_adjusted',vline_location_upper 
     # intensity_mixture_normalized = profile[intensity_col] / profile[intensity_col].max()  * 100.0
     sns.lineplot(x= profile['cs'], y = profile[intensity_col], color = 'blue')
     # intensity_reference =
-    ax.set_ylim(0, profile[intensity_col].max()*1.02)
+    # ax.set_ylim(0, profile[intensity_col].max()*1.02)
     # p = peaks[350]
     if vline_location_upper is not None:
         for loc in vline_location_upper:
-            plt.vlines(x = loc  , ymin = 0, ymax =profile[intensity_col].max(), colors = 'orange')
+            plt.vlines(x = loc  , ymin  = profile[intensity_col].min(), ymax =profile[intensity_col].max(), colors = 'orange')
     if peak_stat is not None:
         for index, row in peak_stat.iterrows():
             plt.vlines(x = row['peak_apex']  , ymin = 0, ymax =row['intensity'], colors = 'orange')
@@ -246,7 +251,7 @@ def get_edges_nmr(intensity_list, cur_apex_idx, edge_cof = 0.01):
             right_edge_idx = cur_apex_idx+i-1
             break
     return((left_edge_idx, cur_apex_idx, right_edge_idx))
-def cluster_peaks(peak_major, step = 0.01):
+def cluster_peaks(peak_major, step = 0.02):
     peak_major_sorted = peak_major.copy()
     peak_major_sorted.sort_values(by = 'intensity', inplace=True, ascending=False)
     cluster_id = 0
@@ -258,6 +263,7 @@ def cluster_peaks(peak_major, step = 0.01):
         peak_clustered = pd.concat([peak_clustered, current_cluster])
         peak_major_sorted.drop(list(current_cluster.index.values), inplace=True)
     return peak_clustered
+import math
 def get_shift_statistics(cluster_statistics, std_profile, fraction_profile):
     step = 0.000275
     peak_cluster_statistics = pd.DataFrame()
@@ -268,23 +274,38 @@ def get_shift_statistics(cluster_statistics, std_profile, fraction_profile):
         std_region = quick_search_values(std_profile, 'cs', left_edge, right_edge, ifsorted=False)
         fraction_region = quick_search_values(fraction_profile, 'cs', left_edge, right_edge, ifsorted=False)
         corr_forward = sm.tsa.stattools.ccf(fraction_region['intensity_adjusted'], std_region['intensity_adjusted'], adjusted=False)
+
         corr_backward = sm.tsa.stattools.ccf(std_region['intensity_adjusted'],fraction_region['intensity_adjusted'] , adjusted=False)
         if np.max(corr_forward)>np.max(corr_backward):
             lag = np.argmax(corr_forward)
             shift = step*lag
-            max_cor = corr_forward[lag]
+            if math.isinf(np.max(corr_forward))==False:
+                max_cor = corr_forward[lag]
+            else:
+                max_cor = 0
         else:
             lag = np.argmax(corr_backward)
             shift = step*lag*(-1)
-            max_cor = corr_backward[lag]
+            if math.isinf(np.max(corr_backward))==False:
+                max_cor = corr_backward[lag]
+            else:
+                max_cor = 0
         current_cluster['shift']=shift
         current_cluster['corr']=max_cor
-        current_cluster['split']=len(current_cluster)
-        if len(current_cluster)==1:
-            coe = len(current_cluster)+0.5
+        split = len(current_cluster[current_cluster['area']>0.4*current_cluster['area'].max()])
+        current_cluster['split']=split
+
+        # if len(current_cluster[current_cluster['area']>0.8*current_cluster['area'].max()])==1:
+        #     coe = np.log10(1.1)
+        # else:
+        #     coe  = np.log10(len(current_cluster[current_cluster['area']>0.8*current_cluster['area'].max()]))
+        if split <2:
+            coe = 0
         else:
-            coe  = len(current_cluster)
-        current_cluster['score']=max_cor*np.log10(coe)
+            coe = 1
+        # coe = np.log10(split)
+        # current_cluster['score']=max_cor*np.log10(coe)*np.log10(current_cluster['area'].median())
+        current_cluster['score']=coe*(max_cor*np.log10(current_cluster['area'].max()))
         peak_cluster_statistics = pd.concat([peak_cluster_statistics, current_cluster], ignore_index=True)
     return peak_cluster_statistics
 def get_cluster_statistics(profile_smoothed):

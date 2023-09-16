@@ -161,6 +161,7 @@ def complete_formula(data, smiles_column = 'smiles'):
 
 all_adduct_pos = ['[M]+','[M+H]+', '[M+Na]+', '[M+NH4]+', '[M-H2O+H]+']
 all_adduct_neg = ['[M]-','[M-H]-','[M+C2H4O2-H]-','[M-H2O-H]-','[M+FA-H]-','[M+Cl]-','[M+Na-2H]-']
+from toolsets.constants import single_charged_adduct_mass
 def calculate_precursormz(smiles, adduct):
     mol_ = check_mol(smiles)
     proton = 1.00727646677
@@ -177,6 +178,8 @@ def calculate_precursormz(smiles, adduct):
             pmz = ExactMolWt(mol_)+proton
         elif (adduct=='[M+Na]+'):
             pmz = ExactMolWt(mol_)+Na_plus
+        elif (adduct == '[M+K]+'):
+            pmz = ExactMolWt(mol_)+single_charged_adduct_mass[adduct]
         elif (adduct=='[M-H2O+H]+'):
             pmz = ExactMolWt(mol_)-ExactMolWt(Chem.MolFromSmiles('O'))+proton
         elif (adduct=='[M-H]-'):
