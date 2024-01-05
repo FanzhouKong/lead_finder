@@ -7,12 +7,14 @@ import numpy as np
 import toolsets.ff_droup as ff
 from tqdm import tqdm
 import toolsets.spectra_operations as so
-def extract_features(mzml_dir, features_dir):
+def extract_features(mzml_dir, features_dir, rt_max = 20):
+    if os.path.exists(features_dir)==False:
+        os.mkdir(features_dir)
     for root, dirs, files in os.walk(mzml_dir):
         for file in tqdm(files):
             if file.endswith('.mzML'):
                 try:
-                    ms1, ms2 =ff.process_mzml(os.path.join(mzml_dir, file), if_mix=False, rt_max=12)
+                    ms1, ms2 =ff.process_mzml(os.path.join(mzml_dir, file), if_mix=False, rt_max=rt_max)
                     features_temp = ff.feature_finding(ms1, ms2)
                     features_temp.to_csv(os.path.join(features_dir, file.split('.')[0]+'.csv'), index = False)
                 except:

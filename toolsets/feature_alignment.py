@@ -300,7 +300,7 @@ def find_feautre_fast(feature_table, feature_mz_sorted,feature_rt_sorted, mz, rt
     #     return()
 def find_feature(feature_table, mz, rt, mz_column = 'Precursor m/z', rt_column = 'RT_adjusted', intensity_column =None, rt_offset = 2):
     # print('i am nin new')
-    mz_step = 0.005
+    mz_step = 0.003
     # print(mz_step)
     feature_mz_search = quick_search_values(feature_table, mz_column, mz-mz_step, mz+mz_step, ifsorted=False)
     # return(feature_mz_search)

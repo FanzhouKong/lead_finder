@@ -44,6 +44,7 @@ def prepare_sample_list(filelist):
     # print(fraction_idx)
     # [mylist[i] for i in idx]
     # return(fraction_idx)
+    # samples, qcs, blks
     return([filelist[i] for i in fraction_idx], [filelist[i] for i in qc_idx], [filelist[i] for i in blk_idx])
 def get_file_list(dir, tail, with_tail = False):
     file_list = []
@@ -105,46 +106,51 @@ def readin_peak_list(file, msial = False):
     if msial == True:
         df = pd.read_csv(file,
                          sep = '\t',
-                         header=[4]
+                         header=[4],
+                         low_memory=False
                          )
     else:
         df = pd.read_csv(file,
                          sep = '\t',
+                         low_memory=False
                          # header=[4]
                          )
     return(df)
-def read_msp_files(msp_path, clean = True, if_rt = False):
+def read_msp_files(msp_path, if_rt = False):
 
     msp_file = smart_io(msp_path, mode = 'r')
     specs = []
+    print('reading in spec')
     for spec in read_one_spectrum(msp_file, include_raw=False):
         specs.append(spec)
+    print('done reading in spec')
     msp = pd.DataFrame.from_dict(specs)
+    # return(msp)
+    # precursor_col = specify_column('')
+    print('checking spectrum')
     msp_with_spectrum = msp[msp['spectrum'].map(lambda d: len(d)) > 0]
-    if clean == False:
-        return(msp_with_spectrum)
     precursor_col = specify_column('PRECURSORMZ', msp_with_spectrum.columns)
     if if_rt == True:
         rt_col = specify_column('RETENTIONTIME', msp_with_spectrum.columns)
         msp_with_spectrum[rt_col]=pd.to_numeric(msp_with_spectrum[rt_col])
-    msp_with_spectrum[precursor_col]=pd.to_numeric(msp_with_spectrum[precursor_col])
-    
-    peaks = []
-    print('cleaning incoming spectrum')
-    for index, row in tqdm(msp_with_spectrum.iterrows(), total = len(msp_with_spectrum)):
-        peaks.append(clean_spectrum(convert_nist_to_string(row['spectrum']), max_mz = row[precursor_col],
-            tolerance = 0.02, ifppm = False, noise_level = 0.00))
-    msp_with_spectrum['peaks']=peaks
-    msp_with_spectrum = msp_with_spectrum[msp_with_spectrum['peaks'].map(lambda d: len(d)) > 0]
-    charge = []
-    for index, row in msp_with_spectrum.iterrows():
-        if row['PRECURSORTYPE'][-1]=='+':
-            charge.append(1)
-        elif row['PRECURSORTYPE'][-1]=='-':
-            charge.append(-1)
-        else:
-            charge.append('np.NAN')
-    msp_with_spectrum.insert(msp_with_spectrum.columns.get_loc("PRECURSORTYPE")+1, 'charge', charge)
+    # msp_with_spectrum[precursor_col]=pd.to_numeric(msp_with_spectrum[precursor_col])
+    adduct_col = specify_column('PRECURSOR_type', msp_with_spectrum.columns)
+    # print('converting spectrum')
+    # peaks = []
+    # for index, row in tqdm(msp_with_spectrum.iterrows(), total = len(msp_with_spectrum)):
+    #     peaks.append(convert_nist_to_string(row['spectrum']))
+    # msp_with_spectrum['msms']=peaks
+    # msp_with_spectrum = msp_with_spectrum[msp_with_spectrum['peaks'].map(lambda d: len(d)) > 0]
+    # charge = []
+    # for index, row in msp_with_spectrum.iterrows():
+    #     if row[adduct_col][-1]=='+':
+    #         charge.append(1)
+    #     elif row[adduct_col][-1]=='-':
+    #         charge.append(-1)
+    #     else:
+    #         charge.append('np.NAN')
+    # msp_with_spectrum.insert(msp_with_spectrum.columns.get_loc(adduct_col)+1, 'charge', charge)
+    # msp_return = msp_with_spectrum[['Name','Formula', 'Precursor_type','PrecursorMZ','InChIKey','Ion_mode', 'Instrument_type','Ionization', 'Collision_energy', 'msms']]
     return (msp_with_spectrum)
 
 
@@ -236,8 +242,8 @@ def export_library_msp(data,output_location, typeofmsms='peaks_denoised_normaliz
         entry = entry+'Ion_mode: '+ionmode+ '\n'
         entry = (entry + 'Comment: ' + 'method_'+str(row['comments'])+'ms1intensity'+'_'+str(row['peak_apex_intensity'])+"_"
                 +'ei_'+str(row['ei']) + '\n')
-        entry = entry + 'Spectrum_entropy: ' +str((row['spectrum_entropy'])) + '\n'
-        entry = entry + 'Normalized_entropy: ' + str((row['normalized_entropy'])) + '\n'
+        entry = entry + 'Spectrum_entropy: ' +str((row['spectral_entropy'])) + '\n'
+        # entry = entry + 'Normalized_entropy: ' + str((row['normalized_entropy'])) + '\n'
         entry = entry + 'Num peaks: ' + str(num_peaks(row[typeofmsms])) + '\n'
         entry = entry + row[typeofmsms]
         # entry = entry +str(row['count'])
