@@ -31,28 +31,7 @@ import seaborn as sns
 ms1_tolerance = 0.05
 
 import plotly.express as px
-def get_istd_info_all(istd_info, file_list, mzml_dir):
-
-    with Pool(processes=6) as pool:
-        results= pool.starmap(get_istd_info, zip(repeat(istd_info), file_list, repeat(mzml_dir)))
-    # print('i exited pool okay')
-    # features = pd.DataFrame()
-    # for result in results:
-    #     features = pd.concat([features, result], ignore_index=True)
-    # features.sort_values(by = 'rt_offset', ascending=True, inplace=True)
-    # features.drop_duplicates(subset=['ms2_range_idx'], keep = 'first',inplace=True, )
-    # features.reset_index(inplace=True, drop=True)
-    return(results)
-def get_istd_info(istd_info, filename, mzml_dir):
-
-    ms1, ms2 = process_mzml(mzml_path=os.path.join(mzml_dir, filename+'.mzML'), rt_max=5)
-    intensity_file = []
-    rt_file = []
-    for index, row in istd_info.iterrows():
-        rt_temp, intensity_temp = get_ms1_feature(row['pmz'],row['rt_suggested'], ms1)
-        rt_file.append(rt_temp)
-        intensity_file.append(intensity_temp)
-    return(filename, rt_file, intensity_file)
+#
 def feature_finding(ms1, ms2):
     features = pd.DataFrame()
     if len(ms2)==0:
@@ -73,42 +52,7 @@ def feature_finding(ms1, ms2):
     features.reset_index(inplace=True, drop=True)
     return(features)
     # for feature
-def get_ms1_feature(pmz,  rt,ms1):
-    rt_list, intensity_list = get_EIC_list(ms1, pmz, step = ms1_tolerance)
-    n_neighbor = 2
-    intensity_list = moving_average(intensity_list, n_neighbor=n_neighbor)
-    rt_list = rt_list[n_neighbor:-n_neighbor]
-    baseline = pybaselines.smooth.snip(
-        intensity_list, max_half_window=30, decreasing=True, smooth_half_window = 5
-    )[0]
-    baseline = [0 if x <0 else x for x in baseline]
-    intensity_list_raw = intensity_list.copy()
-    intensity_list = [x-y for x, y in zip(intensity_list_raw, baseline)]
-    intensity_list=[0 if x <0 else x for x in intensity_list]
-    peak_list = get_peaks(intensity_list)
-    target_peak_idx = find_most_close(peak_list, rt_list,rt, return_index=True)
-    candidate_intensity = []
-    #
-    for peak in peak_list:
-        # offset.append(abs(rt_apex - rt_list[peak[1]]))
-        if rt_list[peak[1]]>rt-20/60 and rt_list[peak[1]]<rt+20/60:
-            # candidate_peak.append(peak)
-            # candidate_idx.append(peak[1])
-            candidate_intensity.append(intensity_list[peak[1]])
-        else:
-            candidate_intensity.append(np.NAN)
-    # print(apex_idx)return(apex_idx)
-    if np.isnan(candidate_intensity).all()==False:
-        apex_idx = np.nanargmax(candidate_intensity)
 
-        target_peak_idx = peak_list[apex_idx]
-
-
-        rt_apex, int_apex = get_centroid([target_peak_idx[1]-1,target_peak_idx[1], target_peak_idx[1]+1], rt_list, intensity_list)
-    else:
-        rt_apex = np.NAN
-        int_apex = np.NAN
-    return(rt_apex, int_apex)
     # pass
 
 def get_feature(ms2,current_pmz_bin,ms1):
@@ -120,7 +64,6 @@ def get_feature(ms2,current_pmz_bin,ms1):
     rt_list, intensity_list = get_EIC_list(ms1, current_pmz_bin, step=ms1_tolerance)
     n_neighbor = 2
     intensity_list = moving_average(intensity_list, n_neighbor=n_neighbor)
-    rt_list = rt_list[n_neighbor:-n_neighbor]
     baseline = pybaselines.smooth.snip(
         intensity_list, max_half_window=30, decreasing=True, smooth_half_window = 5
     )[0]
@@ -236,9 +179,6 @@ def process_mzml(mzml_path, parent_dir =  None, rt_max = 20,if_mix = False, with
     #     print('the mzml file or mix name you passed might be wrong')
         # raise Error
     ms2 = string_search(ms1_2, 'ms_level', 2)
-    
-    
-    
     ms1 = string_search(ms1_2, 'ms_level', 1)
     ms1.sort_values(by='rt', inplace=True)
     ms1.reset_index(inplace=True, drop=True)
@@ -374,7 +314,14 @@ def EIC(rt_list, intensity_list,
     # return(rt_list, intensity_list)
     # ms1_intensity = []
     # peak_purity = []
-
+from toolsets.search import quick_search_sorted
+def find_scan_fast(pmz,rt_start, rt_end, ms2_pmz_sorted,ms2_rt_sorted,mass_tolerance = 0.005):
+    # feature_mz_sorted = feature_table.sort_values(by = mz_column, ascending=True)
+    # feature_rt_sorted = feature_table.sort_values(by = rt_column, ascending=True)
+    scan_pmz_matched = quick_search_sorted(ms2_pmz_sorted, 'ms1_pmz', pmz-mass_tolerance, pmz+mass_tolerance)
+    scan_rt_matched = quick_search_sorted(ms2_rt_sorted, 'ms1_rt', rt_start, rt_end)
+    lst = list(set(scan_pmz_matched.index) & set(scan_rt_matched.index))
+    return(lst)
 
 def moving_average( intensity_list, n_neighbor = 3):
     # n_neighbor = 20
@@ -382,7 +329,7 @@ def moving_average( intensity_list, n_neighbor = 3):
     bl_rt = []
     for i in range(len(intensity_list)):
         if i < n_neighbor or len(intensity_list)-i<=n_neighbor:
-            pass
+            bl.append(intensity_list[i])
         else:
             neighbors = intensity_list[i-n_neighbor:i+n_neighbor]
             bl.append(np.mean(neighbors))
@@ -472,20 +419,7 @@ def load_mzml_data(file: str, n_most_abundant=400, rt_max = 5) -> tuple:
         }))
 
     
-def _calculate_mass(mono_mz: float, charge: int) -> float:
-    """Calculate the precursor mass from mono mz and charge.
 
-    Args:
-        mono_mz (float): mono m/z.
-        charge (int): charge.
-
-    Returns:
-        float: precursor mass.
-        TBH this doesnt get a lot of use, since it assumes [M+H]+ adduct
-    """
-    prec_mass = mono_mz * abs(charge) - charge * 1.00727646687
-
-    return prec_mass
 
 
 
@@ -562,16 +496,16 @@ def build_index(ms1):
     index_sorted = np.array(index_sorted)
     return(mass_sorted, intensity_sorted, index_sorted, rt_list)
 
-def EIC_fast(pmz, mass_error, mass_sorted, intensity_sorted, index_sorted):
-
+def flash_eic(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=0.005):
+    # print('ttt')
     index_start, index_end = mass_sorted.searchsorted([pmz-mass_error, pmz+mass_error])
     index_range = index_sorted[index_start:index_end]
+
     intensity_range = intensity_sorted[index_start:index_end]
-    intensity_list = np.zeros(len(np.unique(index_sorted)))
-    for idx in set(index_range):
-        intensity_indecies = np.argwhere(index_range==idx)
-        # intensity_indecies = [i for i, x in enumerate(index_range) if x == idx]\
-        intensity_list[idx]=intensity_range.take(intensity_indecies).sum()
+
+    intensity_list = np.zeros(np.max(index_sorted)+1)
+    for idx in range(0,len(index_range)):
+        intensity_list[index_range[idx]]= intensity_list[index_range[idx]]+intensity_range[idx]
     return(intensity_list)
 def _extract_ms1_intensity(peaks, mz_lower, mz_upper):
     # peaks = so.sort_spectrum(peaks)
@@ -599,7 +533,20 @@ def find_most_close(peaks, rt_list, rt_apex, return_index = False):
         return(-1)
 
 
+def _calculate_mass(mono_mz: float, charge: int) -> float:
+    """Calculate the precursor mass from mono mz and charge.
 
+    Args:
+        mono_mz (float): mono m/z.
+        charge (int): charge.
+
+    Returns:
+        float: precursor mass.
+        TBH this doesnt get a lot of use, since it assumes [M+H]+ adduct
+    """
+    prec_mass = mono_mz * abs(charge) - charge * 1.00727646687
+
+    return prec_mass
 import numpy as np
 def get_peaks(intensity_list: np.ndarray) -> list:
     """Detects peaks in an array.
@@ -791,14 +738,73 @@ def centroid_data(
         int_array_centroided[i] = int_
 
     return mz_array_centroided, int_array_centroided
-def get_mz_bin(ms2):
-    ms2_working = ms2.copy()
-    ms2_working.sort_values(by = 'ms1_pmz', ascending=True, inplace=True)
-    bins = []
-    while len(ms2_working)>0:
-        current_cluster = quick_search_values(ms2_working, 'ms1_pmz', value_start=ms2_working.iloc[np.argmax(ms2_working['ms1_precursor_intensity'])]['ms1_pmz']-ms1_tolerance,
-                                              value_end=ms2_working.iloc[np.argmax(ms2_working['ms1_precursor_intensity'])]['ms1_pmz']+ms1_tolerance)
-        # current_cluster = num_search(ms2_working, 'precursor_mz', ms2_working.iloc[np.argmax(ms2_working['ms1_precursor_intensity'])]['precursor_mz'], direction='between', step=0.005, inclusion=True)
-        ms2_working.drop(current_cluster.index, inplace=True)
-        bins.append(current_cluster.iloc[np.argmax(current_cluster['ms1_precursor_intensity'])]['ms1_pmz'])
-    return(bins)
+def get_mz_bin(ms2, step = 0.005):
+    mass_working = np.array(ms2['ms1_pmz'])
+    intensity_working = np.array(ms2['ms1_precursor_intensity'])
+    pmz_bin = []
+    while len(mass_working)>0:
+        idx = np.argmax(intensity_working)
+        start_index, end_index = mass_working.searchsorted([mass_working[idx]-step, mass_working[idx]+step])
+        pmz_bin.append(mass_working[idx])
+        mass_working = np.delete(mass_working, np.arange(start_index, end_index))
+        intensity_working = np.delete(intensity_working, np.arange(start_index, end_index))
+
+    return(pmz_bin)
+# def get_istd_info_all(istd_info, file_list, mzml_dir):
+#
+#     with Pool(processes=6) as pool:
+#         results= pool.starmap(get_istd_info, zip(repeat(istd_info), file_list, repeat(mzml_dir)))
+#     # print('i exited pool okay')
+#     # features = pd.DataFrame()
+#     # for result in results:
+#     #     features = pd.concat([features, result], ignore_index=True)
+#     # features.sort_values(by = 'rt_offset', ascending=True, inplace=True)
+#     # features.drop_duplicates(subset=['ms2_range_idx'], keep = 'first',inplace=True, )
+#     # features.reset_index(inplace=True, drop=True)
+#     return(results)
+# def get_istd_info(istd_info, filename, mzml_dir):
+#
+#     ms1, ms2 = process_mzml(mzml_path=os.path.join(mzml_dir, filename+'.mzML'), rt_max=5)
+#     intensity_file = []
+#     rt_file = []
+#     for index, row in istd_info.iterrows():
+#         rt_temp, intensity_temp = get_ms1_feature(row['pmz'],row['rt_suggested'], ms1)
+#         rt_file.append(rt_temp)
+#         intensity_file.append(intensity_temp)
+#     return(filename, rt_file, intensity_file)
+# def get_ms1_feature(pmz,  rt,ms1):
+#     rt_list, intensity_list = get_EIC_list(ms1, pmz, step = ms1_tolerance)
+#     n_neighbor = 2
+#     intensity_list = moving_average(intensity_list, n_neighbor=n_neighbor)
+#     rt_list = rt_list[n_neighbor:-n_neighbor]
+#     baseline = pybaselines.smooth.snip(
+#         intensity_list, max_half_window=30, decreasing=True, smooth_half_window = 5
+#     )[0]
+#     baseline = [0 if x <0 else x for x in baseline]
+#     intensity_list_raw = intensity_list.copy()
+#     intensity_list = [x-y for x, y in zip(intensity_list_raw, baseline)]
+#     intensity_list=[0 if x <0 else x for x in intensity_list]
+#     peak_list = get_peaks(intensity_list)
+#     target_peak_idx = find_most_close(peak_list, rt_list,rt, return_index=True)
+#     candidate_intensity = []
+#     #
+#     for peak in peak_list:
+#         # offset.append(abs(rt_apex - rt_list[peak[1]]))
+#         if rt_list[peak[1]]>rt-20/60 and rt_list[peak[1]]<rt+20/60:
+#             # candidate_peak.append(peak)
+#             # candidate_idx.append(peak[1])
+#             candidate_intensity.append(intensity_list[peak[1]])
+#         else:
+#             candidate_intensity.append(np.NAN)
+#     # print(apex_idx)return(apex_idx)
+#     if np.isnan(candidate_intensity).all()==False:
+#         apex_idx = np.nanargmax(candidate_intensity)
+#
+#         target_peak_idx = peak_list[apex_idx]
+#
+#
+#         rt_apex, int_apex = get_centroid([target_peak_idx[1]-1,target_peak_idx[1], target_peak_idx[1]+1], rt_list, intensity_list)
+#     else:
+#         rt_apex = np.NAN
+#         int_apex = np.NAN
+#     return(rt_apex, int_apex)
