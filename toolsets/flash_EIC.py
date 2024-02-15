@@ -197,28 +197,33 @@ def _extract_ms1_intensity(peaks, mz_lower, mz_upper):
     return(np.sum(intensity_temp[index_start: index_end]))
 
 
-def build_index(mass_flatten, intensity_flatten, index_flatten):
-
-    mass_sorted, intensity_sorted, index_sorted = zip(*sorted(zip(mass_flatten, intensity_flatten, index_flatten)))
-    mass_sorted = np.array(mass_sorted)
-    intensity_sorted= np.array(intensity_sorted)
-    index_sorted = np.array(index_sorted)
-    return(mass_sorted, intensity_sorted, index_sorted)
-
-def flash_eic(pmz, mass_error, mass_sorted, intensity_sorted, index_sorted):
+def build_index(ms1):
+    # ms1.reset_index(inplace = True, drop = True)
+    mass_nested = [None]*len(ms1)
+    intensity_nested = [None]*len(ms1)
+    index_nested = [None]*len(ms1)
+    rt_list = np.zeros(len(ms1))
+    for index, row in (ms1.iterrows()):
+        mass_temp, intensity_temp = row['peaks'].T
+        mass_nested[index]=(mass_temp)
+        intensity_nested[index]=(intensity_temp)
+        index_nested[index]=([index]*len(mass_temp))
+        rt_list[index]=(row['rt'])
+    mass_flatten = np.array(list(itertools.chain.from_iterable(mass_nested)))
+    intensity_flatten = np.array(list(itertools.chain.from_iterable(intensity_nested)))
+    index_flatten = np.array(list(itertools.chain.from_iterable(index_nested)))
+    order = np.argsort(mass_flatten)
+    mass_sorted = mass_flatten[order]
+    intensity_sorted = intensity_flatten[order]
+    index_sorted = index_flatten[order]
+    return(mass_sorted, intensity_sorted, index_sorted, rt_list)
+def flash_eic(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=0.005):
     index_start, index_end = mass_sorted.searchsorted([pmz-mass_error, pmz+mass_error])
     index_range = index_sorted[index_start:index_end]
+
     intensity_range = intensity_sorted[index_start:index_end]
+
     intensity_list = np.zeros(np.max(index_sorted)+1)
     for idx in range(0,len(index_range)):
         intensity_list[index_range[idx]]= intensity_list[index_range[idx]]+intensity_range[idx]
     return(intensity_list)
-def string_search(data, column_name,item, reset_index = True,reverse = False):
-    if reverse == False:
-        _data= data[data[column_name].to_numpy() == item]
-        # return data[data[column_name].to_numpy() == item]
-    else:
-        _data= data[data[column_name].to_numpy() != item]
-    if reset_index == True:
-        _data.reset_index(inplace= True, drop = True)
-    return(_data)
