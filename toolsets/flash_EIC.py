@@ -1,6 +1,7 @@
 import numpy as np
 import pymzml
 import pandas as pd
+import itertools
 def read_mzml(mzml_path, rt_max = None):
 
     ms1_2 = _load_mzml_data(mzml_path, rt_max = rt_max)
@@ -120,6 +121,16 @@ def _load_mzml_data(file: str, n_most_abundant=400, rt_max = None) -> tuple:
 
 
 
+def string_search(data, column_name,item, reset_index = True,reverse = False):
+    if reverse == False:
+        _data= data[data[column_name].to_numpy() == item]
+        # return data[data[column_name].to_numpy() == item]
+    else:
+        _data= data[data[column_name].to_numpy() != item]
+    if reset_index == True:
+        _data.reset_index(inplace= True, drop = True)
+    return(_data)
+        # return data[data[column_name].to_numpy() != item]
 
 
 
@@ -227,3 +238,12 @@ def flash_eic(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=0.005
     for idx in range(0,len(index_range)):
         intensity_list[index_range[idx]]= intensity_list[index_range[idx]]+intensity_range[idx]
     return(intensity_list)
+
+
+if __name__ == "__main__":
+    mzml_path = '/Users/fanzhoukong/Documents/GitHub/Libgen_data/benchmarking_dataset/mzml/SA1.mzML'
+    ms1, ms2 = read_mzml(mzml_path)
+    mass_sorted, intensity_sorted, index_sorted, rt_list = build_index(ms1)
+    pmz= 371.112
+    ion_trace = flash_eic(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=0.005)
+    print(ion_trace[0:10])
