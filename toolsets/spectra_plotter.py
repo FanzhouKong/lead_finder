@@ -28,18 +28,18 @@ from toolsets.search import quick_search_values
 # In[3]:
 
 
-def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz1=None, pmz2= None,
+def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz=None, pmz2= None,
                       color1 = None, color2 = None,lower=None, upper=None, identity = False, normalize = True,
                       ifNIST = False,savepath = None, show= True, publication = False,fontsize = 12):
 
     if ifNIST ==True:
         msms_1 = so.convert_nist_to_string(msms_1)
         msms_2 = so.convert_nist_to_string(msms_2)
-    if pmz1 is not None:
+    if pmz is not None:
         if pmz2 is None:
-            pmz2 = pmz1
-    if pmz1 is not None and pmz2 is not None:
-        msms_1 = so.truncate_msms(msms_1, pmz1-1.6)
+            pmz2 = pmz
+    if pmz is not None and pmz2 is not None:
+        msms_1 = so.truncate_msms(msms_1, pmz-1.6)
         msms_2= so.truncate_msms(msms_2, pmz2-1.6)
     mass1, intensity1 = so.break_spectra(msms_1)
     mass1 = [float(x) for x in mass1]
@@ -77,9 +77,12 @@ def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz1=None, p
         # msms2 = so.cut_msms(msms2, mz_lower = mz_start, mz_upper = mz_end)
     # return(msms1, msms2)
     if publication == True:
-        fig = plt.figure(figsize = (3, 2.5))#43
+        wid = 3
+        hi = 2.5
     else:
-        fig = plt.figure(figsize = (8, 6))#43
+        wid = 8
+        hi = 6
+    fig = plt.figure(figsize = (wid, hi))#43
     plt.subplots_adjust()
     ax = fig.add_subplot()
     for i in range(len(msms1)):
@@ -87,8 +90,8 @@ def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz1=None, p
             plt.vlines(x = msms1.iloc[i]["m/z"], ymin = 0, ymax = msms1.iloc[i]["normalized_intensity"],color = 'blue')
         elif color1 != None:
             plt.vlines(x =msms1.iloc[i]["m/z"], ymin = 0, ymax = msms1.iloc[i]["normalized_intensity"],color = color1)
-    if pmz1 != None:
-        plt.vlines(x = pmz1, ymin = 0, ymax = msms1['normalized_intensity'].max(),color = 'grey', linestyle='dashed')
+    if pmz != None:
+        plt.vlines(x = pmz, ymin = 0, ymax = msms1['normalized_intensity'].max(),color = 'grey', linestyle='dashed')
     for i in range(len(msms2)):
         if color2 ==None:
             plt.vlines(x = msms2.iloc[i][["m/z"]], ymax = 0, ymin = msms2.iloc[i]["inverse_normalized_intensity"], color = 'r')
@@ -106,10 +109,12 @@ def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz1=None, p
     if(mz_start is not None and mz_end is not None):
         ax.set_xlim(lower, upper)
     # else:
-        # ax.set_xlim(-100, 100)
-    labels = ['100', '50', '0', '50', '100']
-    ax.set_yticklabels(labels)
-    ax.set_ylim(msms2['inverse_normalized_intensity'].min(), msms1['normalized_intensity'].max())
+    #     ax.set_xlim(-100, 100)
+    # labels = [-100, -50, 0, 50, 100]
+    # ax.set_yticklabels(labels)
+    # ax.set_ylim(msms2['inverse_normalized_intensity'].min(), msms1['normalized_intensity'].max())
+    ax.set_ylim(-100, +100)
+    print('entropy similarity is ', so.entropy_identity(msms_1, msms_2, pmz))
     plt.axhline(y=0, color='black', linestyle='-')
     start, end = ax.get_ylim()
     plt.tight_layout()
@@ -121,6 +126,7 @@ def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz1=None, p
 
     plt.grid(True, axis="y", color='black', linestyle=':', linewidth=0.1)
     # ax.grid(False)
+
     plt.tight_layout()
     if savepath != None:
         plt.savefig(savepath, dpi = 300,facecolor = 'none', edgecolor = 'none')
@@ -243,6 +249,8 @@ def _extract_MS1(mzml, scan_number):
                      mzml['int_list_ms1'][mzml['indices_ms1'][scan_number]:mzml['indices_ms1'][scan_number+1]])
     return (ms1_1)
 def ms2_plot(msms_1, pmz1 = None, lower=None, upper=None, savepath = None, color = 'blue'):
+    if pmz1 is not None:
+        msms_1 = so.truncate_msms(msms_1, pmz1-1.6)
     mass1, intensity1 = so.break_spectra(msms_1)
     mass1 = [float(x) for x in mass1]
     intensity1 = [float(x) for x in intensity1]

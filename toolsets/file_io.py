@@ -102,8 +102,8 @@ def readin_alignment(file):
 
 
 
-def readin_peak_list(file, msial = False):
-    if msial == True:
+def readin_peak_list(file, alighment = False):
+    if alighment == True:
         df = pd.read_csv(file,
                          sep = '\t',
                          header=[4],
@@ -217,38 +217,49 @@ def parse_feature_peaks(peaks):
 
 
 from tqdm import tqdm
+from rdkit import Chem
+from rdkit.Chem.rdMolDescriptors import CalcMolFormula
+from rdkit.Chem.Descriptors import ExactMolWt
 from toolsets.spectra_operations import num_peaks
+from toolsets.spectra_operations import spectral_entropy, truncate_msms
 def export_library_msp(data,output_location, typeofmsms='peaks_denoised_normalized', ifcollision_energy = False):
     entry = ''
     for index, row in tqdm(data.iterrows(), total = len(data)):
-        entry = entry + 'Name: ' + row['reference_name'] + '\n'
-        entry = entry + 'InChIKey: ' + str(row['reference_inchikey']) + '\n'
-        entry = entry + 'SMILES: ' + str(row['reference_smiles']) + '\n'
-        entry = entry + 'RETENTIONTIME: ' + str(row['rt']) + '\n'
-        entry = entry +'Spectrum_type: '+'MS2'+ '\n'
-        entry = entry + 'PrecursorMZ: ' + str(row['reference_precursor_mz']) + '\n'
-        # entry = entry + 'InChIKey: ' + str(row['reference_inchikey']) + '\n'
-        entry = entry + 'Formula: ' + row['reference_formula'] + '\n'
-        entry = entry + 'ExactMass: ' + str(row['reference_mono_mass']) + '\n'
-        entry = entry + 'Precursor_type: ' + row['reference_adduct'] + '\n'
-        if ifcollision_energy:
-            entry = entry + 'Collision_enerty: ' + str(row['Collision_energy']) + '\n'
-        # entry = entry + 'RETENTIONTIME: ' + str(row['retention_time_wa']) + '\n'
-        if row['reference_adduct'][-1]=='+':
-            # charge = '1+'
-            ionmode = 'P'
-        else:
-            ionmode = 'N'
-        entry = entry+'Ion_mode: '+ionmode+ '\n'
-        entry = (entry + 'Comment: ' + 'method_'+str(row['comments'])+'ms1intensity'+'_'+str(row['peak_apex_intensity'])+"_"
-                +'ei_'+str(row['ei']) + '\n')
-        entry = entry + 'Spectrum_entropy: ' +str((row['spectral_entropy'])) + '\n'
-        # entry = entry + 'Normalized_entropy: ' + str((row['normalized_entropy'])) + '\n'
-        entry = entry + 'Num peaks: ' + str(num_peaks(row[typeofmsms])) + '\n'
-        entry = entry + row[typeofmsms]
-        # entry = entry +str(row['count'])
-        entry = entry + '\n'
-        entry = entry + '\n'
+        if row[typeofmsms]==row[typeofmsms]:
+            mol = Chem.MolFromSmiles(row['reference_smiles'])
+            entry = entry + 'Name: ' + row['reference_name'] + '\n'
+            entry = entry + 'InChIKey: ' + str(Chem.MolToInchiKey(mol)) + '\n'
+            entry = entry + 'SMILES: ' + str(row['reference_smiles']) + '\n'
+            entry = entry + 'RETENTIONTIME: ' + str(row['rt_apex']) + '\n'
+            entry = entry +'Spectrum_type: '+'MS2'+ '\n'
+            entry = entry + 'PrecursorMZ: ' + str(row['precursor_mz']) + '\n'
+            # entry = entry + 'InChIKey: ' + str(row['reference_inchikey']) + '\n'
+
+            entry = entry + 'Formula: ' + CalcMolFormula(mol) + '\n'
+
+            entry = entry + 'ExactMass: ' + str(ExactMolWt(mol)) + '\n'
+            entry = entry + 'Precursor_type: ' + row['reference_adduct'] + '\n'
+            if ifcollision_energy:
+                entry = entry + 'Collision_enerty: ' + str(row['Collision_energy']) + '\n'
+            # entry = entry + 'RETENTIONTIME: ' + str(row['retention_time_wa']) + '\n'
+            if row['reference_adduct'][-1]=='+':
+                # charge = '1+'
+                ionmode = 'P'
+            else:
+                ionmode = 'N'
+            entry = entry+'Ion_mode: '+ionmode+ '\n'
+            entry = (entry + 'Comment: ' +str(row['comment'])+'_ms1intensity'+'_'+str(row['ms1_intensity'])+"_"
+                    +'ei_'+str(row['ei']) + '\n')
+            try:
+                entry = entry + 'Spectrum_entropy: ' +str(spectral_entropy(truncate_msms(row[typeofmsms], row['precursor_mz']-1.6))) + '\n'
+            except:
+                entry = entry + 'Spectrum_entropy: ' +str(-1) + '\n'
+            # entry = entry + 'Normalized_entropy: ' + str((row['normalized_entropy'])) + '\n'
+            entry = entry + 'Num peaks: ' + str(num_peaks(row[typeofmsms])) + '\n'
+            entry = entry + row[typeofmsms]
+            # entry = entry +str(row['count'])
+            entry = entry + '\n'
+            entry = entry + '\n'
 
     #open text file
     text_file = open(output_location, "w",encoding='utf-8')

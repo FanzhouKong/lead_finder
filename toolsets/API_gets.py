@@ -17,6 +17,12 @@ def smiles_to_name(smile):
         return r['PropertyTable']['Properties'][0]['IUPACName']
     except:
         return(np.NAN)
+def smiles_to_xlogp(smile):
+    try:
+        r = requests.get(f'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{smile}/property/XLogP/JSON').json()
+        return r['PropertyTable']['Properties'][0]['XLogP']
+    except:
+        return(np.NAN)
 def inchi_to_smiles(inchikey=None , show_example = False):
     inputt='InChIKey'
     outputt ='CanonicalSMILES'

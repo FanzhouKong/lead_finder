@@ -17,6 +17,7 @@ def std_list_cleanup(std_list_nt, name_column = 'name'):
     std_list = { 'name': std_list_nt[name_column],
              # 'abb':std_list_nt['abbreviated'],
             # 'inchikey': std_list_nt['uncharged_inchikey'],
+                 'reference_rt':std_list_nt['rt_reference'],
             'mix':std_list_nt['mix'],
                  'smiles':std_list_nt['uncharged_smiles'],
                  'formula':std_list_nt['uncharged_formula'],
@@ -26,6 +27,9 @@ def std_list_cleanup(std_list_nt, name_column = 'name'):
              # 'rt_minus':std_list_nt['rt_minus']
                  }
     std_list = pd.DataFrame(std_list)
+    std_list['reference_rt'] = pd.to_numeric(std_list['reference_rt'], errors='coerce')
+    inchikey_all = [Chem.MolToInchiKey(Chem.MolFromSmiles(x)) for x in std_list['smiles']]
+    std_list['inchikey']=inchikey_all
     return(std_list)
 # def get_info_from_db(std_list, inchikey_column = 'inchikey'):
 #     smiles = []
@@ -73,10 +77,14 @@ def check_mol(smile):
     else:
         try:
             mol_ = Chem.MolFromSmiles(smile)
-            return(mol_)
+            if mol_ is None:
+                return(np.NAN)
+            else:
+                return(mol_)
         except:
             return(np.NAN)
 def cal_formal_charge(smile):
+
     mol_ = check_mol(smile)
     return (Chem.GetFormalCharge(mol_))
 
@@ -86,6 +94,7 @@ def check_salt(smile, salts_smart):
     matches = mol_.GetSubstructMatches(salt_pattern)
     return(len(matches))
 def neutrilize_salt(smile, salts_smart, return_stripped = False):
+
     mol_ = check_mol(smile)
     from rdkit.Chem import SaltRemover
     from rdkit.Chem.MolStandardize import rdMolStandardize
@@ -99,26 +108,35 @@ def neutrilize_salt(smile, salts_smart, return_stripped = False):
         return(Chem.MolToSmiles(mol_uncharged))
 
 
-def neutrilize_salt_df(salt_df_input, salts_smart='[Na+,K+,Cl-,HCl,HBr]', smile_column = 'smiles_fetched'):
+def neutrilize_salt_df(salt_df_input, salts_smart='[Na+,K+,Cl-,I-,HCl,HBr,H2O]', smile_column = 'smiles_fetched'):
     salt_df = salt_df_input.copy()
     salt_df.columns= salt_df.columns.str.lower()
     uncharged_result = {}
-    for head in ['stripped','uncharged']:
+    for head in ['original','stripped','uncharged']:
         for tail in ['smiles', 'formula', 'formal_charges']:
             uncharged_result[head+'_'+tail]=[]
     uncharged_result['monoisotopic_mass']=[]
     for index, row in salt_df.iterrows():
+
         uncharged_smile,res_smile  = neutrilize_salt(row[smile_column], salts_smart, return_stripped=True)
+
+        uncharged_smile,res_smile  = neutrilize_salt(uncharged_smile, 'CCO', return_stripped=True)
+        uncharged_smile,res_smile  = neutrilize_salt(uncharged_smile, 'OC(=O)c1cc(ccc1O)S(O)(=O)=O', return_stripped=True)
+        uncharged_smile,res_smile  = neutrilize_salt(uncharged_smile, 'O[Cl](=O)(=O)=O', return_stripped=True)
+        raw = Chem.MolFromSmiles(row[smile_column])
         res = Chem.MolFromSmiles(res_smile)
         mol_uncharged = Chem.MolFromSmiles(uncharged_smile)
         for tail in ['smiles', 'formula', 'formal_charges','monoisotopic_mass']:
             if tail =='smiles':
+                uncharged_result['original'+'_'+tail].append(Chem.MolToSmiles(raw))
                 uncharged_result['stripped'+'_'+tail].append(Chem.MolToSmiles(res))
                 uncharged_result['uncharged'+'_'+tail].append(Chem.MolToSmiles(mol_uncharged))
             if tail =='formula':
+                uncharged_result['original'+'_'+tail].append(CalcMolFormula(raw))
                 uncharged_result['stripped'+'_'+tail].append(CalcMolFormula(res))
                 uncharged_result['uncharged'+'_'+tail].append(CalcMolFormula(mol_uncharged))
             if tail =='formal_charges':
+                uncharged_result['original'+'_'+tail].append(cal_formal_charge(raw))
                 uncharged_result['stripped'+'_'+tail].append(cal_formal_charge(res))
                 uncharged_result['uncharged'+'_'+tail].append(cal_formal_charge(mol_uncharged))
             if tail == 'monoisotopic_mass':
@@ -218,9 +236,10 @@ from toolsets.constants import single_charged_adduct_mass
 def calculate_precursormz(smiles, adduct):
     mol_ = check_mol(smiles)
     mono_mass =ExactMolWt(mol_)
+    # print(mono_mass)
     if adduct in single_charged_adduct_mass.keys():
         if cal_formal_charge(mol_)==0:
-            if adduct in single_charged_adduct_mass.keys():
+            if adduct in single_charged_adduct_mass.keys() and adduct != '[M]+' and adduct != '[M]-':
                 pmz = mono_mass+single_charged_adduct_mass[adduct]
             else:
                 pmz = 0

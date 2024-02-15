@@ -65,11 +65,12 @@ def denoise_bp(msms, precursor_mz,threshold = 1):
 
     # else:
 
-def denoise_h(msms, smiles, adduct, reference_db_sorted, mass_error = 0.01):
+def denoise_h(msms, smiles, adduct, parent_ion,reference_db_sorted, mass_error = 0.01):
     start = time.time()
     msms = so.sort_spectrum(msms)
     mass, intensity = so.break_spectra(msms)
-    parent_ion = calculate_precursormz(smiles, adduct)
+    # parent_ion = calculate_precursormz(smiles, adduct)
+    # print(parent_ion)
     # precursor = get_precursor(msms, parent_ion)
     # if precursor == precursor:
     #     parent_ion = precursor
@@ -96,6 +97,7 @@ def denoise_h(msms, smiles, adduct, reference_db_sorted, mass_error = 0.01):
         else:
             mass_tbd.append(mass_frag[cur_i])
             intensity_tbd.append(intensity_frag[cur_i])
+
     check_1 = time.time()
     # all_possible_formulas = get_all_formulas(formula)
     # all_allowed_formulas, all_allowed_masses = get_all_allowed_formula_mass(all_possible_formulas)
@@ -323,7 +325,8 @@ def get_loss_candidate(mass, reference_db, step):
     losses = pd.DataFrame()
     for m in [mass_neg, mass, mass_pos]:
         # print(m)
-        losses = losses.append(quick_search_sorted(reference_db, 'mass', m, step))
+        losses = pd.concat([losses, quick_search_sorted(reference_db, 'mass', m-step, m+step)])
+        # losses = losses.append(quick_search_sorted(reference_db, 'mass', m, step))
     return (losses)
 def check_loss(loss_formula_candidate, formula):
     # print(formula)

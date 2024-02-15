@@ -158,7 +158,7 @@ def make_bin(bin_left, tol, if_sorted = True):
     binn =quick_search_values(bin_left, 'mass', bin_left['mass'][max_index]-step, bin_left['mass'][max_index]+step)
     bin_left_return = bin_left.drop(binn.index)
     return(binn, bin_left_return)
-def weighted_average_spectra(data_subset, typeofmsms = 'peaks', mass_error = 0.02, weight_col = 'ms1_precursor_intensity'):
+def weighted_average_spectra(data_subset, typeofmsms = 'peaks', weight_col = 'ms1_precursor_intensity'):
     # if(len(data_subset)<2):
     #     print("you cannot make weighted average spectra using only 1 spectra")
     #     return(np.NAN)
@@ -326,6 +326,10 @@ def convert_nist_to_string(msms):
 
 def convert_msdial_to_string(msdial_msms):
     return(msdial_msms.replace(' ', '\n').replace(':', '\t'))
+def convert_array_to_string(msms):
+    mass = msms.T[0]
+    intensity = msms.T[1]
+    return(pack_spectra(mass, intensity))
 def convert_scc_to_string(msms):
     mass = []
     intensity = []
@@ -462,7 +466,11 @@ def find_peak_match(mass1, intensity1, mass2, intensity2, frag_ion, mass_error =
     index_end = np.searchsorted(mass2, frag_ion+mass_error,side = 'right')
     frag_int2 = np.sum(intensity2[index_start:index_end])
     return(frag_int1, frag_int2)
-def entropy_identity(msms1, msms2,pmz = None,NIST =False, mass_error = 0.02):
+def see_msms(msms):
+    mass, intenisty = break_spectra(msms)
+    return(np.array([mass, intenisty]).T)
+def entropy_identity(msms1, msms2,pmz = None,NIST =False, mass_error = 0.01):
+
     msms1 = sort_spectrum(msms1)
     msms2 = sort_spectrum(msms2)
     if NIST == True:
@@ -473,6 +481,21 @@ def entropy_identity(msms1, msms2,pmz = None,NIST =False, mass_error = 0.02):
     if pmz is not None:
         msms1 = truncate_msms(msms1, pmz-1.6)
         msms2 = truncate_msms(msms2, pmz-1.6)
+    msms1 = normalize_spectrum(msms1)
+    msms2 = normalize_spectrum(msms2)
+    S1 = spectral_entropy(msms1)
+    S2 = spectral_entropy(msms2)
+    if S1<3:
+        coef = 0.25+S1*0.25
+        mass, intensity = break_spectra(msms1)
+        intensity = [pow(x, coef) for x in intensity]
+        msms1 = pack_spectra(mass, intensity)
+    if S2<3:
+        coef = 0.25+S2*0.25
+        mass, intensity = break_spectra(msms2)
+        intensity = [pow(x, coef) for x in intensity]
+        msms2 = pack_spectra(mass, intensity)
+
     if num_peaks(msms1)==0 or num_peaks(msms2)==0:
         return(np.NAN)
     msms1 = normalize_spectrum(msms1, total='half')
