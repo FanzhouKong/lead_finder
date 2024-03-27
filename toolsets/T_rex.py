@@ -6,195 +6,392 @@ import toolsets.helpers as helpers
 import pybaselines
 from tqdm import tqdm
 import os
+from scipy.signal import find_peaks
 import toolsets.helpers as helpers
 import toolsets.spectra_operations as so
 from collections import Counter
-
-def find_features(mzml_path, parent_dir,intensity_threshold = 30000, istd_info=None,
-                  n_neighbor = 2):
-    ms1, ms2 = rds.read_mzml(mzml_path, parent_dir = parent_dir)
+def find_feature(mzml_name, mzml_dir, intensity_threshold = 30000, n_neighbor = 2):
+    ms1, ms2 = rds.read_mzml(mzml_name, mzml_dir)
     mass_sorted, intensity_sorted, index_sorted, rt_list = build_index(ms1)
-    features_df = get_features(mass_sorted, intensity_sorted, index_sorted, rt_list, base_name=ms1.iloc[0]['base_name'], intensity_threshold=intensity_threshold,
-                                n_neighbor = n_neighbor)
-    iso_state_lst = [None]*len(features_df)
-    if_dut_lst = [None]*len(features_df)
-    if_halo_lst = [None]*len(features_df)
-    idx = 0
-    # ms1s = [None]*len(features_df)
-    # for index, row in (features_df.iterrows()):
-    #     iso_state, if_dut, if_halo = _determine_iso_state(row, mass_sorted, intensity_sorted, index_sorted)
-    #     iso_state_lst[idx]=iso_state
-    #     if_dut_lst[idx]=if_dut
-    #     if_halo_lst[idx]=if_halo
-    #     mass = ms1.iloc[row['ms1_idx']]['peaks'].T[0]
-    #     inte = ms1.iloc[row['ms1_idx']]['peaks'].T[1]
-    #
-    #     iso_idx_start, iso_idx_end = mass.searchsorted([(row['precursor_mz'])-0.005,row['precursor_mz']+3.2])
-    #     mass = mass[iso_idx_start:iso_idx_end]
-    #     inte = inte[iso_idx_start:iso_idx_end]
-    #     inte = [x/np.max(inte) for x in inte]
-    #     ms1s[idx]=so.pack_spectra(mass, inte)
-    #     idx = idx+1
-    # features_df['iso_state']=iso_state_lst
-    # features_df['if_dut']=if_dut_lst
-    # features_df['if_halo']= if_halo_lst
-    # features_df['ms1']=ms1s
-    # if istd_info is not None:
-    #     features_df = find_istd_info(istd_info, features_df)
-    # features_df_with_ms2, unmapped_ms2 = map_ms2(features_df, ms2)
-    return(features_df)
-def get_features(mass_sorted, intensity_sorted, index_sorted, rt_list, base_name=None, intensity_threshold=30000, n_neighbor = 2):
+    feature_temp = get_features(mass_sorted, intensity_sorted, index_sorted, rt_list, intensity_threshold= intensity_threshold, n_neighbor=n_neighbor)
+    feature_temp = deduplication(feature_temp)
+    feature_temp_ms2 = map_ms2(feature_temp, ms2)
+    return(feature_temp_ms2)
+def deduplication(ms1_features):
+    ms1_features['pmz_offset']=abs(ms1_features['precursor_mz']-ms1_features['eic_center'])
+    ms1_features['anchor_scan']=ms1_features['ms1_scan_range'].apply(lambda x: x[1])
+    masks = ms1_features.groupby(['anchor_pmz', 'anchor_scan']).pmz_offset.transform(min)
+    ms1_deduplicated = ms1_features.loc[ms1_features.pmz_offset == masks]
+    ms1_deduplicated.drop(columns = ['anchor_scan', 'anchor_pmz'], inplace = True)
+    return ms1_deduplicated
+def get_seed_mass(seed_mass, mass_sorted):
+    if seed_mass<400:
+        pre_mass_error = 0.004
+    else:
+        pre_mass_error = seed_mass * 10 / 1E6
+    left_idx, right_idx = mass_sorted.searchsorted([seed_mass-pre_mass_error, seed_mass+pre_mass_error])
+    mass_error = np.std(mass_sorted[left_idx:right_idx])*3
+    if mass_error <pre_mass_error:
+        mass_error = pre_mass_error
+    left_idx, right_idx = mass_sorted.searchsorted([seed_mass-mass_error, seed_mass+mass_error])
+    seed_mass = np.median(mass_sorted[left_idx:right_idx])
+    left_idx, right_idx = mass_sorted.searchsorted([seed_mass-mass_error, seed_mass+mass_error])
+    return(seed_mass, mass_error, left_idx, right_idx)
+def is_in_ranges(number, centers, scopes):
+    """
+    Check if a given number falls within any of the ranges defined by centers and scopes.
+
+    :param number: The number to check.
+    :param centers: Array of range centers.
+    :param scopes: Array of range scopes (half-widths).
+    :return: True if the number is in any range, False otherwise.
+    """
+    # Calculate start and end points of each range
+    starts = centers - scopes
+    ends = centers + scopes
+
+    # Check if the number is in any range
+    in_range = np.any((number >= starts) & (number <= ends))
+
+    return in_range
+def get_features(mass_sorted, intensity_sorted, index_sorted, rt_list, intensity_threshold = 1000, n_neighbor = 2):
     pmz = np.zeros(len(mass_sorted))
-    ion_trace_center = np.zeros(len(mass_sorted))
-    # ion_trace_offset = np.zeros(len(mass_sorted))
+
     rt = np.zeros(len(mass_sorted))
     rt_start =np.zeros(len(mass_sorted))
     rt_end =np.zeros(len(mass_sorted))
+    eic_center = np.zeros(len(mass_sorted))
+    anchor_pmzs = np.zeros(len(mass_sorted))
+    eic_offset = np.zeros(len(mass_sorted))
     apex_intensity = np.zeros(len(mass_sorted))
     n_scans = np.zeros(len(mass_sorted))
     peak_range = [None]*(len(mass_sorted))
     ms1_idx = [None]*(len(mass_sorted))
     reci_snr_all = np.zeros((len(mass_sorted)))
-    idx = 0
-    intensity_sorted_indexing = intensity_sorted.copy()
-    # num_grater_than_zero = np.sum(intensity_sorted_indexing>0)
-    while np.max(intensity_sorted_indexing)>30000:
+    counter = 0
 
-        seed_idx = np.argmax(intensity_sorted_indexing)
-        seed_mass = mass_sorted[seed_idx]
-        ion_trace = flash_eic(seed_mass, mass_sorted, intensity_sorted, index_sorted)
-        peaks_all, reci_snrs_all, raw_apex_idx_all = detect_all_peaks(ion_trace,
-                                                                      n_neighbor=n_neighbor,
-                                                                      intensity_threshold=intensity_threshold)
-        idx_start, idx_end = mass_sorted.searchsorted([seed_mass-0.005, seed_mass+0.005])
-        intensity_sorted_indexing[idx_start:idx_end]=0
-        # print(np.max(intensity_sorted_indexing))
-        # if np.sum(intensity_sorted_indexing>0)==num_grater_than_zero:
-        #     print('not zeroing out')
-        #     return(seed_mass)
-        # else:
-        #     num_grater_than_zero = np.sum(intensity_sorted_indexing>0)
-        if len(peaks_all)>0:
-            for p, r, a in zip(peaks_all, reci_snrs_all, raw_apex_idx_all):
-                pmz_statistics = guess_pmz(seed_mass, mass_sorted,
-                                           intensity_sorted, index_sorted, idx_start, idx_end, int(a))
-                if pmz_statistics[0]==pmz_statistics[0]:
-                    pmz[idx]=pmz_statistics[0]
-                    apex_intensity[idx]=pmz_statistics[1]
-                    ms1_idx[idx]=a
-                    reci_snr_all[idx]=r
-                    ion_trace_center[idx]=seed_mass
-                    rt_start[idx]=rt_list[p[0]]
-                    rt_end[idx]=rt_list[p[2]]
-                    n_scans[idx]=p[2]-p[0]-1
-                    peak_range[idx]=[p[0],a,p[2]]
-                    try:
-                        rt[idx]=gaussian_estimator(tuple([int(a)-1,int(a), int(a)+1]),rt_list, ion_trace)
-                        if rt[idx]!=rt[idx]:
-                            rt[idx]=rt_list[int(a)]
-                    except:
-                        rt[idx]=rt_list[int(a)]
-                    idx = idx+1
+    order = np.argsort(intensity_sorted)[::-1]
+    mass_indexing = mass_sorted[order]
+    intensity_indexing = intensity_sorted[order]
+    eic_index_center = np.zeros(len(mass_indexing))
+    eic_index_offset = np.zeros(len(mass_indexing))
+    index_counter = 0
 
+    for idx in tqdm(range(0, len(mass_indexing[intensity_indexing>intensity_threshold]))):
+        seed_mass, mass_error, left_idx, right_idx=get_seed_mass(mass_indexing[idx],mass_sorted )
+        if is_in_ranges(seed_mass, eic_index_center[0:index_counter], eic_index_offset[0:index_counter])== False:
 
-        # print(np.max(intensity_sorted_indexing))
+            ion_trace = flash_eic(seed_mass, mass_sorted, intensity_sorted, index_sorted,
+                                  mass_error=mass_error)
+            eic_index_center[index_counter]=seed_mass
+            eic_index_offset[index_counter]=mass_error
+            index_counter=index_counter+1
+            try:
+                peaks_all, raw_apex_idx_all,reci_snrs_all  = detect_all_peaks(ion_trace, n_neighbor=n_neighbor,intensity_threshold=intensity_threshold)
+            except:
+                print(seed_mass, mass_error)
+                return
+            if len(peaks_all)>0:
+                for p, r, a in zip(peaks_all, reci_snrs_all, raw_apex_idx_all):
+                    pmz_statistics = guess_pmz(seed_mass, mass_sorted,
+                                               intensity_sorted, index_sorted, left_idx, right_idx, int(a), mass_error)
 
-    pmz = pmz[0:idx]
-    rt = rt[0:idx]
-    rt_start = rt_start[0:idx]
-    rt_end = rt_end[0:idx]
-    apex_intensity = apex_intensity[0:idx]
-    n_scans = n_scans[0:idx]
-    peak_range = peak_range[0:idx]
-    ion_trace_center = ion_trace_center[0:idx]
-    reci_snr_all=reci_snr_all[0:idx]
-    df = pd.DataFrame(zip(pmz, rt, rt_start, rt_end,
+                    if pmz_statistics[0]==pmz_statistics[0]:
+                        pmz[counter]=pmz_statistics[0]
+                        anchor_pmzs[counter]=pmz_statistics[2]
+                        apex_intensity[counter]=pmz_statistics[1]
+                        ms1_idx[counter]=a
+                        reci_snr_all[counter]=r
+                        rt_start[counter]=rt_list[p[0]]
+                        rt_end[counter]=rt_list[p[2]]
+                        n_scans[counter]=p[2]-p[0]-1
+                        peak_range[counter]=[p[0],a,p[2]]
+                        eic_center[counter] = eic_center[counter] + seed_mass
+                        eic_offset[counter]=eic_offset[counter]+mass_error
+                        try:
+                            rt[counter]=gaussian_estimator(tuple([int(a)-1,int(a), int(a)+1]),rt_list, ion_trace)
+                            if rt[counter]!=rt[counter]:
+                                rt[counter]=rt_list[int(a)]
+                        except:
+                            rt[counter]=rt_list[int(a)]
+
+                        counter = counter + 1
+
+    eic_center = eic_center[0:counter]
+    eic_offset = eic_offset[0:counter]
+    pmz = pmz[0:counter]
+    rt = rt[0:counter]
+    rt_start = rt_start[0:counter]
+    rt_end = rt_end[0:counter]
+    apex_intensity = apex_intensity[0:counter]
+    n_scans = n_scans[0:counter]
+    peak_range = peak_range[0:counter]
+    reci_snr_all=reci_snr_all[0:counter]
+    anchor_pmzs=anchor_pmzs[0:counter]
+    df = pd.DataFrame(zip(pmz,anchor_pmzs, eic_center, eic_offset,
+                          rt, rt_start, rt_end,
                           apex_intensity,
-                          n_scans,peak_range,ion_trace_center,reci_snr_all),
-                      columns=['precursor_mz','rt_apex', 'rt_start', 'rt_end',
+                          n_scans,peak_range,reci_snr_all),
+                      columns=['precursor_mz','anchor_pmz','eic_center', 'eic_offset',
+                               'rt_apex', 'rt_start', 'rt_end',
                                'ms1_intensity',
-                               'n_scnas', 'ms1_scan_range','ion_trace_center', 'reci_snr'])
-    df['base_name']=base_name
+                               'n_scnas', 'ms1_scan_range', 'reci_snr'])
     return(df)
-def detect_all_peaks(intensity_list, intensity_threshold = 30000, n_neighbor=2, return_all = False):
+
+def get_current_peak(peaks_all, all_apex_intensity,intensity_list_smoothed):
+    current_peak_idx = np.argmax(all_apex_intensity)
+    apex_peak = np.array(peaks_all[current_peak_idx])
+    apex_peak_range = [current_peak_idx,current_peak_idx]
+    l = 1
+    r = 1
+    while current_peak_idx-l>0:
+        left_peak = peaks_all[current_peak_idx-l]
+        if apex_peak[0]-left_peak[2]<=2 and intensity_list_smoothed[apex_peak[0]]>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[left_peak[1]])/1.3:
+            apex_peak[0]=left_peak[0]
+            apex_peak_range[0]=current_peak_idx-l
+            l = l+1
+        else:
+            break
+    while current_peak_idx+r<len(peaks_all):
+        right_peak = peaks_all[current_peak_idx+r]
+        if right_peak[0]-apex_peak[2]<=2 and intensity_list_smoothed[apex_peak[2]]>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[right_peak[1]])/1.3:
+            apex_peak[2]=right_peak[2]
+            apex_peak_range[1]=current_peak_idx+r
+            r = r+1
+        else:
+            break
+    peaks_all = peaks_all[0:apex_peak_range[0]]+peaks_all[apex_peak_range[1]+1:]
+    all_apex_intensity = np.array([intensity_list_smoothed[x[1]]for x in peaks_all])
+    return apex_peak, peaks_all, all_apex_intensity
+def detect_all_peaks(intensity_list, intensity_threshold = 30000, n_neighbor=2, return_all = False, return_baseline = False):
     intensity_list_smoothed = np.array(moving_average(intensity_list, n= n_neighbor))
     peaks_all =get_peaks(intensity_list_smoothed)
+    if len(peaks_all)==0:
+        return([], np.NAN, np.NAN)
     peaks_return = [None]*len(peaks_all)
     reci_snrs = np.zeros(len(peaks_all))
-    n_scans = np.zeros(len(peaks_all))
+    raw_apex_idx = np.zeros(len(peaks_all), dtype=int)
     # smoothed_apex_intensity =np.zeros(len(peaks_all))
     idx = 0
-    raw_apex_idx = np.zeros(len(peaks_all), dtype=int)
     all_apex_intensity = np.array([intensity_list_smoothed[x[1]]for x in peaks_all])
+    if np.max(all_apex_intensity)<=intensity_threshold:
+        return ([], np.NAN, np.NAN)
     while np.max(all_apex_intensity)>intensity_threshold:
-        current_peak_idx = np.argmax(all_apex_intensity)
-        apex_peak = np.array(peaks_all[current_peak_idx])
-        apex_peak_range = [current_peak_idx,current_peak_idx]
-        l = 1
-        r = 1
-        while current_peak_idx-l>0:
-            left_peak = peaks_all[current_peak_idx-l]
-            if apex_peak[0]-left_peak[2]<=2 and intensity_list_smoothed[apex_peak[0]]>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[left_peak[1]])/1.3:
-                apex_peak[0]=left_peak[0]
-                apex_peak_range[0]=current_peak_idx-l
-                l = l+1
-            else:
-                break
-        while current_peak_idx+r<len(peaks_all):
-            right_peak = peaks_all[current_peak_idx+r]
-            if right_peak[0]-apex_peak[2]<=2 and intensity_list_smoothed[apex_peak[2]]>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[right_peak[1]])/1.3:
-                apex_peak[2]=right_peak[2]
-                apex_peak_range[1]=current_peak_idx+r
-                r = r+1
-            else:
-                break
-
-        # max_half_window = int(np.ceil((apex_peak[2]-apex_peak[0])/2))
-        # baseline = pybaselines.smooth.snip(
-        #     intensity_list_smoothed,
-        #     max_half_window=40,
-        #     decreasing=True)[0]
-        # baseline = [0 if x <0 else x for x in baseline]
-        # reci_snr = np.median(baseline[apex_peak[0]:apex_peak[2]+1])/intensity_list_smoothed[apex_peak[1]]
-
+        apex_peak, peaks_all, all_apex_intensity= get_current_peak(peaks_all,all_apex_intensity, intensity_list_smoothed )
+        if idx == 0:
+            fwhm = find_peak_width(apex_peak, intensity_list_smoothed, ratio = 1/1.5)
+            fwhm = np.ceil(fwhm*1.32)
+            # print(fwhm)
         peaks_return[idx]=(apex_peak)
-        n_scans[idx]=apex_peak[2]-apex_peak[0]
         # smoothed_apex_intensity[idx]=intensity_list_smoothed[apex_peak[1]]
         raw_apex_idx[idx]=(apex_peak[0]+np.argmax(intensity_list[apex_peak[0]:apex_peak[2]+1]))
         idx = idx+1
-        # all_apex_intensity = np.concatenate((all_apex_intensity[0:apex_peak_range[0]],all_apex_intensity[apex_peak_range[1]+1:]), axis=None)
-        peaks_all = peaks_all[0:apex_peak_range[0]]+peaks_all[apex_peak_range[1]+1:]
-        all_apex_intensity = np.array([intensity_list_smoothed[x[1]]for x in peaks_all])
-
         if len(peaks_all)==0:
             break
-    # n_scans=n_scans[0:idx]
+    baseline = pybaselines.smooth.snip(intensity_list,  decreasing = True, max_half_windowint = fwhm, smooth_half_window = int(fwhm))[0]
+    # print(fwhm)
+    # baseline = pybaselines.classification.dietrich(intensity_list_smoothed, smooth_half_window =0,poly_order=2,interp_half_window=fwhm)[0]
+    # baseline = pybaselines.classification.fastchrom(intensity_list_smoothed, half_window = fwhm)[0]
 
-    max_half_window = int(np.ceil(np.max(n_scans)/2))
-    # print(max_half_window)
-    baseline = pybaselines.smooth.snip(
-        intensity_list_smoothed,
-        max_half_window=max_half_window,
-        decreasing=False)[0]
-    baseline = np.array([0 if x <0 else x for x in baseline])
+    baseline[baseline<0]=0
     for i in range(0, idx):
         reci_snrs[i]=np.median(baseline[peaks_return[i][0]:peaks_return[i][2]+1])/intensity_list_smoothed[peaks_return[i][1]]
-    peaks_return=peaks_return[0:idx]
-    reci_snrs = reci_snrs[0:idx]
-    raw_apex_idx=raw_apex_idx[0:idx]
+    raw_apex_idx = raw_apex_idx[0:idx]
+
+    peaks_return = peaks_return[0:idx]
+    reci_snrs=reci_snrs[0:idx]
     if return_all==True:
-        return (peaks_return, reci_snrs, raw_apex_idx)
+        toggle = raw_apex_idx>-1
+    else:
+        toggle = reci_snrs<1/5
+    if return_baseline==False:
+        return np.array(peaks_return)[toggle], raw_apex_idx[toggle], reci_snrs[toggle]
+    else:
+        return np.array(peaks_return)[toggle], raw_apex_idx[toggle], reci_snrs[toggle], baseline
+    # n_scans=n_scans[0:idx]
+
+# def detect_all_peaks(intensity_list, intensity_threshold = 30000, n_neighbor=2, return_all = False, return_baseline = False):
+#     intensity_list_smoothed = np.array(moving_average(intensity_list, n= n_neighbor))
+#     peaks_all =get_peaks(intensity_list_smoothed)
+#     if len(peaks_all)==0:
+#         return ([],np.NAN, np.NAN)
+#     peaks_return = [None]*len(peaks_all)
+#     reci_snrs = np.zeros(len(peaks_all))
+#     # smoothed_apex_intensity =np.zeros(len(peaks_all))
+#     idx = 0
+#     raw_apex_idx = np.zeros(len(peaks_all), dtype=int)
+#     all_apex_intensity = np.array([intensity_list_smoothed[x[1]]for x in peaks_all])
+#
+#     while np.max(all_apex_intensity)>intensity_threshold:
+#         current_peak_idx = np.argmax(all_apex_intensity)
+#         apex_peak = np.array(peaks_all[current_peak_idx])
+#         apex_peak_range = [current_peak_idx,current_peak_idx]
+#         l = 1
+#         r = 1
+#         while current_peak_idx-l>0:
+#             left_peak = peaks_all[current_peak_idx-l]
+#             if apex_peak[0]-left_peak[2]<=2 and intensity_list_smoothed[apex_peak[0]]>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[left_peak[1]])/1.3:
+#                 apex_peak[0]=left_peak[0]
+#                 apex_peak_range[0]=current_peak_idx-l
+#                 l = l+1
+#             else:
+#                 break
+#         while current_peak_idx+r<len(peaks_all):
+#             right_peak = peaks_all[current_peak_idx+r]
+#             if right_peak[0]-apex_peak[2]<=2 and intensity_list_smoothed[apex_peak[2]]>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[right_peak[1]])/1.3:
+#                 apex_peak[2]=right_peak[2]
+#                 apex_peak_range[1]=current_peak_idx+r
+#                 r = r+1
+#             else:
+#                 break
+#         peaks_return[idx]=(apex_peak)
+#         # smoothed_apex_intensity[idx]=intensity_list_smoothed[apex_peak[1]]
+#         raw_apex_idx[idx]=(apex_peak[0]+np.argmax(intensity_list[apex_peak[0]:apex_peak[2]+1]))
+#         if idx ==0:
+#             fwhm = find_single_fwhm(apex_peak, intensity_list_smoothed)
+#
+#         idx = idx+1
+#         # all_apex_intensity = np.concatenate((all_apex_intensity[0:apex_peak_range[0]],all_apex_intensity[apex_peak_range[1]+1:]), axis=None)
+#         peaks_all = peaks_all[0:apex_peak_range[0]]+peaks_all[apex_peak_range[1]+1:]
+#         all_apex_intensity = np.array([intensity_list_smoothed[x[1]]for x in peaks_all])
+#
+#         if len(peaks_all)==0:
+#             break
+#     if idx == 0:
+#         return([], np.NAN, np.NAN)
+#     # n_scans=n_scans[0:idx]
+#     baseline = pybaselines.smooth.snip(intensity_list_smoothed, max_half_window = fwhm, decreasing = True)[0]
+#
+#     # baseline = pybaselines.classification.dietrich(intensity_list_smoothed)[0]
+#     baseline = np.array([0 if x <0 else x for x in baseline])
+#     for i in range(0, idx):
+#         reci_snrs[i]=np.median(baseline[peaks_return[i][0]:peaks_return[i][2]+1])/intensity_list_smoothed[peaks_return[i][1]]
+#     peaks_return=peaks_return[0:idx]
+#     reci_snrs = reci_snrs[0:idx]
+#     raw_apex_idx=raw_apex_idx[0:idx]
+#
+#     if return_all==True:
+#         return (peaks_return, reci_snrs, raw_apex_idx)
+#     high_quality_idx = reci_snrs<0.2
+#     peaks_return=np.array(peaks_return)
+#
+#     peaks_return = peaks_return[high_quality_idx]
+#     reci_snrs=reci_snrs[high_quality_idx]
+#     raw_apex_idx = raw_apex_idx[high_quality_idx]
+#
+#     if return_baseline ==True:
+#         return(peaks_return,raw_apex_idx,reci_snrs, baseline )
+#     else:
+#         return(peaks_return,raw_apex_idx,reci_snrs )
+# def detect_all_peaks(intensity_list, intensity_threshold = 30000, n_neighbor=2, split_level = 1.5, return_all = False):
+#     intensity_list_smoothed = np.array(moving_average(intensity_list, n= n_neighbor))
+#     # intensity_list_smoothed = intensity_list_smoothed+1
+#     peaks_all =get_peaks(intensity_list_smoothed)
+#     if len(peaks_all)==0:
+#         return(np.NAN)
+#     peaks_return = []
+#     raw_apex_idx = []
+#     reci_snr = []
+#     baseline = get_baseline(intensity_list_smoothed)
+#
+#     while peaks_all == peaks_all and len(peaks_all)>0:
+#         apex_peak, peaks_all = connect_one_peak(peaks_all, intensity_list_smoothed, intensity_threshold = intensity_threshold, split_level = split_level)
+#         if apex_peak == apex_peak:
+#             peaks_return.append(apex_peak)
+#             raw_apex_idx_temp = apex_peak[0]+np.argmax(intensity_list[apex_peak[0]:apex_peak[2]+1])
+#             raw_apex_idx.append(raw_apex_idx_temp)
+#             reci_snr.append(np.median(baseline[apex_peak[0]:(apex_peak[2]+1)])/intensity_list[raw_apex_idx_temp])
+#     peaks_return=np.array(peaks_return)
+#     raw_apex_idx = np.array(raw_apex_idx)
+#     reci_snr = np.array(reci_snr)
+#     if return_all == True:
+#         order = raw_apex_idx>-1
+#     else:
+#         order = reci_snr<1/3
+#     return(peaks_return[order] , raw_apex_idx[order], reci_snr[order])
+    # return(peaks_return[order] , raw_apex_idx[order], reci_snr[order], baseline)
+# def get_baseline(intensity_list_smoothed):
+#     # index_start, index_end = trim_zeros_and_get_indices(intensity_list_smoothed)
+#     # has_number = intensity_list_smoothed[index_start:index_end+1]
+#     # leading_zeros = intensity_list_smoothed[0:index_start]
+#     # tailing_zeros = intensity_list_smoothed[index_end+1:]
+#     # baseline = pybaselines.classification.dietrich(intensity_list_smoothed)[0]
+#     #
+#     # baseline_center[baseline_center<0]=0
+#     baseline_center = np.repeat(np.median(intensity_list_smoothed), len(intensity_list_smoothed))
+#     # baseline = np.concatenate([leading_zeros, baseline_center, tailing_zeros])
+#     return baseline_center
+def trim_zeros_and_get_indices(arr):
+    """
+    Remove all consecutive zeros from the start and end of a NumPy array and return the start and end indices of the remaining array.
+
+    :param arr: Input NumPy array.
+    :return: A tuple (start_index, end_index) of the remaining array.
+    """
+    # Trim zeros from both ends
+    trimmed_arr = np.trim_zeros(arr, 'fb')
+
+    # Find the start and end indices of the non-zero part in the original array
+    if trimmed_arr.size > 0:
+        start_index = np.where(arr == trimmed_arr[0])[0][0]
+        end_index = np.where(arr == trimmed_arr[-1])[0][-1]
+        return start_index, end_index
+    else:
+        # If the trimmed array is empty, return None as indices
+        return None, None
+def find_peak_width(peak, intensity_list_smoothed, ratio = 0.5):
+    peak = peak[1]
+    peak_height = intensity_list_smoothed[peak]
+    half_max = peak_height *ratio
+    left_idx = np.where(intensity_list_smoothed[:peak] <= half_max)[0]
+    if len(left_idx) > 0:
+        left_idx = left_idx[-1]
+    else:
+        left_idx = peak
+    right_idx = np.where(intensity_list_smoothed[peak:] <= half_max)[0]
+    if len(right_idx) > 0:
+        right_idx = peak + right_idx[0]
+    else:
+        right_idx = peak
+    fwhm_width = right_idx - left_idx
+    return(fwhm_width)
+# def connect_one_peak(peaks_all, intensity_list_smoothed,split_level = 1.5, intensity_threshold = 30000):
+#     all_apex_idx = np.array([arr[1] for arr in peaks_all])
+#     all_apex_intensity = intensity_list_smoothed[all_apex_idx]
+#     if np.max(all_apex_intensity)<intensity_threshold:
+#         return (np.NAN, np.NAN)
+#     current_peak_idx = np.argmax(all_apex_intensity)
+#     l = 1
+#     r = 1
+#     # searching left
+#     apex_peak = (peaks_all[current_peak_idx])
+#     apex_peak_range = [current_peak_idx,current_peak_idx]
+#
+#     while current_peak_idx-l>=0:
+#         left_peak = peaks_all[current_peak_idx-l]
+#         if apex_peak[0]-left_peak[2]<=2 and max(intensity_list_smoothed[apex_peak[0]], intensity_list_smoothed[left_peak[2]])>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[left_peak[1]])/split_level:
+#             apex_peak[0]=left_peak[0]
+#             apex_peak_range[0]=current_peak_idx-l
+#             l = l+1
+#         else:
+#             break
+#     while current_peak_idx+r<=len(peaks_all)-1:
+#         right_peak = peaks_all[current_peak_idx+r]
+#         if right_peak[0]-apex_peak[2]<=2 and max(intensity_list_smoothed[apex_peak[2]], intensity_list_smoothed[right_peak[0]])>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[right_peak[1]])/split_level:
+#             apex_peak[2]=right_peak[2]
+#             apex_peak_range[1]=current_peak_idx+r
+#             r = r+1
+#         else:
+#             break
+#     peaks_all_return = peaks_all[0:apex_peak_range[0]]+peaks_all[apex_peak_range[1]+1:]
+#     return(apex_peak, peaks_all_return)
 
 
 
-    high_quality_idx = reci_snrs<1/3
-    peaks_return=np.array(peaks_return)
 
-    peaks_return = peaks_return[high_quality_idx]
-    reci_snrs=reci_snrs[high_quality_idx]
-    raw_apex_idx = raw_apex_idx[high_quality_idx]
-    return(peaks_return,reci_snrs , raw_apex_idx)
-def guess_pmz(target_mass,mass_sorted, intensity_sorted,index_sorted,idx_start, idx_end, peak_apex, guess_step = 1):
+
+
+def guess_pmz(target_mass,mass_sorted, intensity_sorted,index_sorted,idx_start, idx_end, peak_apex, mass_error,guess_step = 1):
     # idx_start, idx_end = mass_sorted.searchsorted([seed_mass-mass_tolerance,seed_mass+mass_tolerance ])
     mass_range = mass_sorted[idx_start:idx_end]
     index_range = index_sorted[idx_start:idx_end]
@@ -210,161 +407,20 @@ def guess_pmz(target_mass,mass_sorted, intensity_sorted,index_sorted,idx_start, 
 
             mass_anchor = difference_array.argmin()
             pmz_candidates[pmz_idx]=mass_range[index_range==i][mass_anchor]
+            if i == peak_apex:
+                anchor_pmz = mass_range[index_range==i][mass_anchor]
             intensity_candidates[pmz_idx]=intensity_range[index_range==i][mass_anchor]
-
+            pmz_idx = pmz_idx+1
         # if i == peak_apex:
         #     apex_intensity = intensity_candidates[pmz_idx]
-        pmz_idx = pmz_idx+1
+
+    if pmz_idx<(2*guess_step+1):
+        return(np.NAN, np.NAN,np.NAN)
     pmz_candidates=pmz_candidates[0:pmz_idx]
-    # print(pmz_candidates, peak_apex)
     intensity_candidates=intensity_candidates[0:pmz_idx]
     weighted_pmz = np.sum([x*y/np.sum(intensity_candidates) for x, y in zip(pmz_candidates, intensity_candidates)])
-    apex_intensity = flash_eic(weighted_pmz, mass_sorted, intensity_sorted, index_sorted)[peak_apex]
-    return (weighted_pmz, apex_intensity)
-# def get_features_alt(mass_sorted, intensity_sorted, index_sorted, rt_list, base_name=None, intensity_threshold=30000, n_neighbor = 2):
-#     pmz = np.zeros(len(mass_sorted))
-#     print('updated!')
-#     ion_trace_center = np.zeros(len(mass_sorted))
-#     ion_trace_offset = np.zeros(len(mass_sorted))
-#     rt = np.zeros(len(mass_sorted))
-#     rt_start =np.zeros(len(mass_sorted))
-#     rt_end =np.zeros(len(mass_sorted))
-#     apex_intensity_raw = np.zeros(len(mass_sorted))
-#     n_scans = np.zeros(len(mass_sorted))
-#     peak_range = [None]*(len(mass_sorted))
-#     reci_snr_all = np.zeros((len(mass_sorted)))
-#     idx = 0
-#     intensity_sorted_indexing = intensity_sorted.copy()
-#     num_grater_than_zero=np.sum(intensity_sorted_indexing>30000)
-#     while np.max(intensity_sorted_indexing)>intensity_threshold:
-#         # print(np.max(intensity_sorted_indexing))
-#         seed_idx = np.argmax(intensity_sorted_indexing)
-#         seed_mass = mass_sorted[seed_idx]
-#         idx_start, idx_end = mass_sorted.searchsorted([seed_mass-0.005,seed_mass+0.005 ])
-#         mass_offset = np.array([abs(x-seed_mass) for x in mass_sorted[idx_start:idx_end]])
-#         mass_tol = np.mean(mass_offset)+3*np.std(mass_offset)
-#         if mass_tol <0.005:# this is a clean ion trace
-#             intensity_list = flash_eic(seed_mass, mass_sorted, intensity_sorted, index_sorted,
-#                                        mass_error=mass_tol)
-#             idx_start, idx_end = mass_sorted.searchsorted([seed_mass-mass_tol,seed_mass+mass_tol ])
-#             peaks_all, reci_snrs, apex_intensity_smoothed_all= detect_all_peaks(intensity_list,
-#                                                                                 n_neighbor=n_neighbor,
-#                                                                                 intensity_threshold=intensity_threshold)
-#             for p, r in zip(peaks_all,reci_snrs):
-#                 apex_range_left = p[0]
-#                 apex_range_right = p[2]
-#                 apex_offset = np.argmax(intensity_list[apex_range_left:apex_range_right+1])
-#                 apex_index = apex_range_left+apex_offset
-#                 try:
-#                     pmz_statistics = guess_pmz(mass_sorted, intensity_sorted, index_sorted,
-#                                                idx_start, idx_end, apex_index)
-#                     pmz[idx]=pmz_statistics[0]
-#                     rt[idx]=gaussian_estimator(tuple([apex_index-1,apex_index, apex_index+1]),rt_list, intensity_list)
-#                     apex_intensity_raw[idx]=pmz_statistics[1]
-#                 except:
-#                     mass_range = mass_sorted[idx_start:idx_end]
-#                     intensity_range = intensity_sorted[idx_start:idx_end]
-#                     index_range = index_sorted[idx_start:idx_end]
-#                     intensity_anchor = np.argmax(intensity_range[index_range==apex_index])
-#                     pmz[idx]=mass_range[index_range==apex_index][intensity_anchor]
-#                     rt[idx]=rt_list[apex_index]
-#                     apex_intensity_raw[idx]=np.max(intensity_list[apex_range_left:apex_range_right+1])
-#                 peak_range[idx]= [p[0], apex_index, p[2]]
-#                 ion_trace_center[idx]=seed_mass
-#                 ion_trace_offset[idx]=mass_tol
-#                 rt_start[idx]=rt_list[p[0]]
-#                 rt_end[idx]=rt_list[p[2]]
-#                 n_scans[idx]=p[2]-p[0]-1
-#                 reci_snr_all[idx]=r
-#                 idx = idx+1
-#             intensity_sorted_indexing[idx_start:idx_end]=0#update index intensity
-#         else:
-#             intensity_list = flash_eic(seed_mass, mass_sorted, intensity_sorted, index_sorted,
-#                                        mass_error=0.005)
-#             peak, reci_snr, apex_intensity_smoothed = detect_one_peak(intensity_list,
-#                                                                       target_idx=index_sorted[seed_idx],
-#                                                                       n_neighbor=10)
-#             if peak != []:
-#                 apex_range_left = p[0]
-#                 apex_range_right = p[2]
-#                 apex_index = index_sorted[seed_idx]
-#                 try:
-#                     pmz_statistics = guess_pmz(mass_sorted, intensity_sorted, index_sorted, idx_start, idx_end, apex_index)
-#                     pmz[idx]=pmz_statistics[0]
-#                     rt[idx]=gaussian_estimator(tuple([apex_index-1,apex_index, apex_index+1]),rt_list, intensity_list)
-#                     apex_intensity_raw[idx]=pmz_statistics[1]
-#                 except:
-#                     mass_range = mass_sorted[idx_start:idx_end]
-#                     intensity_range = intensity_sorted[idx_start:idx_end]
-#                     index_range = index_sorted[idx_start:idx_end]
-#                     intensity_anchor = np.argmax(intensity_range[index_range==apex_index])
-#                     pmz[idx]=mass_range[index_range==apex_index][intensity_anchor]
-#                     rt[idx]=rt_list[apex_index]
-#                     apex_intensity_raw[idx]=np.max(intensity_list[apex_range_left:apex_range_right+1])
-#                 idx = idx+1
-#                 #update intensity index
-#                 intensity_sorted_indexing[idx_start:idx_end][np.logical_and(index_sorted[idx_start:idx_end]>=peak[0],
-#                                                                             index_sorted[idx_start:idx_end]<=peak[2])]=0
-#             else:
-#                 intensity_sorted_indexing[np.argmax[intensity_sorted_indexing]]=0
-#         if np.sum(intensity_sorted_indexing>30000)==num_grater_than_zero:
-#             print('not zeroing out')
-#             return(seed_mass, mass_tol)
-#         else:
-#             num_grater_than_zero = np.sum(intensity_sorted_indexing>30000)
-#     pmz = pmz[0:idx]
-#     rt = rt[0:idx]
-#     rt_start =  rt_start[0:idx]
-#     rt_end = rt_end[0:idx]
-#     apex_intensity_raw = apex_intensity_raw[0:idx]
-#     n_scans = n_scans[0:idx]
-#     peak_range = peak_range[0:idx]
-#     ion_trace_center = ion_trace_center[0:idx]
-#     reci_snr_all=reci_snr_all[0:idx]
-#     ion_trace_offset= ion_trace_offset[0:idx]
-#     df = pd.DataFrame(zip(pmz, rt, rt_start, rt_end,
-#                           apex_intensity_raw,
-#                           n_scans,peak_range,ion_trace_center,reci_snr_all, ion_trace_offset),
-#                       columns=['precursor_mz','rt_apex', 'rt_start', 'rt_end',
-#                                'ms1_intensity',
-#                                'n_scnas', 'ms1_scan_range','ion_trace_center', 'reci_snr', 'ion_trace_offset'])
-#     df['base_name']=base_name
-#     return(df)
-from scipy.signal import find_peaks
-# def detect_one_peak(intensity_list, target_idx, n_neighbor = 2):
-#     intensity_list_smoothed = np.array(moving_average(intensity_list, n= n_neighbor))
-#     peaks_all =get_peaks(intensity_list_smoothed)
-#
-#     offsets = [abs(target_idx-x[1]) for x in peaks_all]
-#     current_peak_idx = np.argmin(offsets)
-#     apex_peak = np.array(peaks_all[current_peak_idx])
-#     apex_peak_range = [current_peak_idx,current_peak_idx]
-#     l = 1
-#     r = 1
-#     while current_peak_idx-l>0:
-#         left_peak = peaks_all[current_peak_idx-l]
-#         if apex_peak[0]-left_peak[2]<=2 and intensity_list_smoothed[apex_peak[0]]>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[left_peak[1]])/1.3:
-#             apex_peak[0]=left_peak[0]
-#             apex_peak_range[0]=current_peak_idx-l
-#             l = l+1
-#         else:
-#             break
-#     while current_peak_idx+r<len(peaks_all):
-#         right_peak = peaks_all[current_peak_idx+r]
-#         if right_peak[0]-apex_peak[2]<=2 and intensity_list_smoothed[apex_peak[2]]>min(intensity_list_smoothed[apex_peak[1]], intensity_list_smoothed[right_peak[1]])/1.3:
-#             apex_peak[2]=right_peak[2]
-#             apex_peak_range[1]=current_peak_idx+r
-#             r = r+1
-#         else:
-#             break
-#     max_half_window = int(np.ceil((apex_peak[2]-apex_peak[0])/2))
-#     baseline = pybaselines.smooth.snip(
-#         intensity_list_smoothed,
-#         max_half_window=max_half_window,
-#         decreasing=True)[0]
-#     baseline = [0 if x <0 else x for x in baseline]
-#     reci_snr = np.median(baseline[apex_peak[0]:apex_peak[2]+1])/intensity_list_smoothed[apex_peak[1]]
-#     return(apex_peak, reci_snr, np.max(intensity_list_smoothed[apex_peak[0]:apex_peak[2]+1]))
+    apex_intensity = flash_eic(weighted_pmz, mass_sorted, intensity_sorted, index_sorted, mass_error = mass_error)[peak_apex]
+    return (weighted_pmz, apex_intensity, anchor_pmz)
 
 def map_ms2(features_df, ms2):
     msms = []
@@ -381,7 +437,7 @@ def map_ms2(features_df, ms2):
         if len(ms2_under_peak)>0:
 
             msms.append(so.convert_array_to_string(ms2_under_peak.iloc[0]['peaks']))
-            ms2_scan_idx.append(ms2_under_peak.iloc[0]['scan_idx'])
+            ms2_scan_idx.append(int(ms2_under_peak.iloc[0]['scan_idx']))
             ms2_working.drop(ms2_under_peak.index.tolist(), inplace=True)
         else:
             msms.append(np.NAN)
@@ -392,14 +448,18 @@ def map_ms2(features_df, ms2):
 
 
 import itertools
-def build_index(ms1):
+def build_index(ms1, use_binned = False):
     # ms1.reset_index(inplace = True, drop = True)
+    if use_binned == False:
+        col = 'peaks'
+    else:
+        col = 'peaks_binned'
     mass_nested = [None]*len(ms1)
     intensity_nested = [None]*len(ms1)
     index_nested = [None]*len(ms1)
     rt_list = np.zeros(len(ms1))
     for index, row in (ms1.iterrows()):
-        mass_temp, intensity_temp = row['peaks'].T
+        mass_temp, intensity_temp = row[col].T
         mass_nested[index]=(mass_temp)
         intensity_nested[index]=(intensity_temp)
         index_nested[index]=([index]*len(mass_temp))
@@ -411,8 +471,9 @@ def build_index(ms1):
     mass_sorted = mass_flatten[order]
     intensity_sorted = intensity_flatten[order]
     index_sorted = index_flatten[order]
+    # loc_sorted = np.arange(len(mass_sorted))
     return(mass_sorted, intensity_sorted, index_sorted, rt_list)
-def flash_eic(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=0.005):
+def flash_eic(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=0.005, gap_fill = True):
     index_start, index_end = mass_sorted.searchsorted([pmz-mass_error, pmz+mass_error+1E-9])
     index_range = index_sorted[index_start:index_end]
 
@@ -421,7 +482,27 @@ def flash_eic(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=0.005
     intensity_list = np.zeros(np.max(index_sorted)+1)
     for idx in range(0,len(index_range)):
         intensity_list[index_range[idx]]= intensity_list[index_range[idx]]+intensity_range[idx]
+    if gap_fill == True:
+        intensity_list = gap_filling(intensity_list, max_gap=2)
     return(intensity_list)
+# def flash_eic_single(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=0.005):
+#     index_start, index_end = mass_sorted.searchsorted([pmz-mass_error, pmz+mass_error+1E-9])
+#     intensity_range = intensity_sorted[index_start:index_end]
+#     index_range = index_sorted[index_start:index_end]
+#     mass_range = mass_sorted[index_start:index_end]
+#
+#     mass_offset = np.abs(mass_range-pmz)
+#     order = np.argsort(mass_offset)
+#     index_range = index_range[order]
+#     intensity_range = intensity_range[order]
+#     intensity_list = np.zeros(np.max(index_sorted)+1)
+#     counter = 0
+#     for idx in range(0,len(index_range)):
+#         if intensity_list[index_range[idx]]==0:
+#             intensity_list[index_range[idx]]= intensity_list[index_range[idx]]+intensity_range[idx]
+#             counter = counter+1
+#     intensity_list = gap_filling(intensity_list)
+#     return(intensity_list)
 def moving_average( x, n=2):
     window = np.ones(2*n + 1) / (2*n + 1)
 
@@ -431,9 +512,6 @@ def moving_average( x, n=2):
     smoothed_arr = np.convolve(x, window, mode='same')
 
     return smoothed_arr
-
-
-
 def get_peaks(intensity_list: np.ndarray) -> list:
     """Detects peaks in an array.
 
@@ -451,7 +529,6 @@ def get_peaks(intensity_list: np.ndarray) -> list:
         peak_list.append(get_edges(intensity_list, cur_apex_idx))
     return(peak_list)
 def get_edges(intensity_list, cur_apex_idx):
-    intensity_list = np.array(intensity_list)
     # gradient = np.diff(intensity_list)
     left_edge_idx = cur_apex_idx-1
     right_edge_idx = cur_apex_idx+1
@@ -466,7 +543,9 @@ def get_edges(intensity_list, cur_apex_idx):
         else:
             break
 
-    return((left_edge_idx, cur_apex_idx, right_edge_idx))
+    return([left_edge_idx, cur_apex_idx, right_edge_idx])
+
+
 #%%
 def gaussian_estimator(
         peak: tuple,
@@ -502,6 +581,23 @@ def gaussian_estimator(
         )
 
     return m
+def gap_filling(intensity_list, max_gap = 2):
+    zero_ranges = zero_runs(intensity_list)
+    intensity_list_twisted = intensity_list.copy()
+    for zr in zero_ranges:
+        if zr[1]-zr[0]<=max_gap and zr[0]!=0 and zr[1]!=len(intensity_list):
+            gradient = (intensity_list[zr[1]]-intensity_list[zr[0]-1])/(zr[1]-zr[0]+1)
+            for j in range(0, zr[1]-zr[0]):
+
+                intensity_list_twisted[j+zr[0]]=intensity_list_twisted[j+zr[0]]+ intensity_list[zr[0]-1]+gradient*(j+1)
+    return(intensity_list_twisted)
+def zero_runs(a):
+    # Create an array that is 1 where a is 0, and pad each end with an extra 0.
+    iszero = np.concatenate(([0], np.equal(a, 0).view(np.int8), [0]))
+    absdiff = np.abs(np.diff(iszero))
+    # Runs start and end where absdiff is 1.
+    ranges = np.where(absdiff == 1)[0].reshape(-1, 2)
+    return ranges
 # def find_roi(ion_trace):
 #     apex_index = np.argmax(ion_trace)
 #     ion_trace_smoothed = trx.moving_average(ion_trace, 10)

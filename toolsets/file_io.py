@@ -222,7 +222,7 @@ from rdkit.Chem.rdMolDescriptors import CalcMolFormula
 from rdkit.Chem.Descriptors import ExactMolWt
 from toolsets.spectra_operations import num_peaks
 from toolsets.spectra_operations import spectral_entropy, truncate_msms
-def export_library_msp(data,output_location, typeofmsms='peaks_denoised_normalized', ifcollision_energy = False):
+def export_library_msp(data,output_location, typeofmsms='msms_denoised', ifcollision_energy = False):
     entry = ''
     for index, row in tqdm(data.iterrows(), total = len(data)):
         if row[typeofmsms]==row[typeofmsms]:
@@ -230,7 +230,8 @@ def export_library_msp(data,output_location, typeofmsms='peaks_denoised_normaliz
             entry = entry + 'Name: ' + row['reference_name'] + '\n'
             entry = entry + 'InChIKey: ' + str(Chem.MolToInchiKey(mol)) + '\n'
             entry = entry + 'SMILES: ' + str(row['reference_smiles']) + '\n'
-            entry = entry + 'RETENTIONTIME: ' + str(row['rt_apex']) + '\n'
+            entry = entry + 'RETENTIONTIME: ' + str(np.round(row['rt_apex'],2)) + '\n'
+            entry = entry + 'reference_rt: ' + str(row['reference_rt']) + '\n'
             entry = entry +'Spectrum_type: '+'MS2'+ '\n'
             entry = entry + 'PrecursorMZ: ' + str(row['precursor_mz']) + '\n'
             # entry = entry + 'InChIKey: ' + str(row['reference_inchikey']) + '\n'
@@ -248,8 +249,8 @@ def export_library_msp(data,output_location, typeofmsms='peaks_denoised_normaliz
             else:
                 ionmode = 'N'
             entry = entry+'Ion_mode: '+ionmode+ '\n'
-            entry = (entry + 'Comment: ' +str(row['comment'])+'_ms1intensity'+'_'+str(row['ms1_intensity'])+"_"
-                    +'ei_'+str(row['ei']) + '\n')
+            entry = (entry + 'Comment: ' +str(row['comment'])+'_ms1intensity+'+str(np.round(row['ms1_intensity'],1))
+                    +'_ei_'+str(np.round(row['ei'],2)) + '\n')
             try:
                 entry = entry + 'Spectrum_entropy: ' +str(spectral_entropy(truncate_msms(row[typeofmsms], row['precursor_mz']-1.6))) + '\n'
             except:

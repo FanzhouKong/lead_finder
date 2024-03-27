@@ -3,9 +3,13 @@ from toolsets.search import  string_search, quick_search_values, quick_search_so
 from toolsets.spectra_operations import entropy_identity
 import numpy as np
 def dereplicate(compound_matched):
+    if len(compound_matched)==0:
+        return(pd.DataFrame())
     df_return = pd.DataFrame()
     guessed_rt = compound_matched.iloc[np.argmax(compound_matched['ms1_intensity'])]['rt_apex']
-
+    compound_matched.dropna(subset = 'msms', inplace = True)
+    if len(compound_matched)==0:
+        return(compound_matched)
     comment = []
     for ma in compound_matched['reference_adduct'].unique():
         # comment = []
@@ -28,28 +32,39 @@ def dereplicate(compound_matched):
                 if entropy_temp>0.75:
                     df_return= pd.concat([df_return, pd.DataFrame([j])], ignore_index=True)
                     comment.append('isomer')
+    if len(df_return)==0:
+        return (df_return)
     df_return.insert(4, 'comment', comment)
     return df_return
-def feature_matching(feature_mix, std_list_mix, adducts):
+def feature_matching(feature_mix, std_list_mix, adducts, unique_identifier = 'CAS'):
     feature_mix.sort_values(by = 'precursor_mz', inplace=True, ascending=True)
     mix_matched = pd.DataFrame()
     for index, row in std_list_mix.iterrows():
         compound_matched = pd.DataFrame()
+
         for a in adducts:
             adduct_matched = quick_search_sorted(feature_mix, 'precursor_mz', row[a]-0.005, row[a]+0.005)
             if len(adduct_matched)>0:
                 # adduct_matched.insert(0, 'reference_mz', row[a])
                 adduct_matched.insert(1, 'reference_name', row['name'])
                 adduct_matched.insert(1, 'reference_mz', row[a])
+                adduct_matched.insert(1,unique_identifier, row[unique_identifier])
                 adduct_matched.insert(2, 'reference_adduct', a)
 
                 # adduct_matched.insert(3, 'reference_rt', row['reference_rt'])
                 adduct_matched.insert(4, 'reference_smiles', row['smiles'])
-                adduct_matched.insert(5, 'reference_mix', row['mix'])
-                adduct_matched.insert(7, 'reference_rt', row['reference_rt'])
-                adduct_matched['reference_inchikey']=row['inchikey']
-                compound_matched = pd.concat([compound_matched, adduct_matched], ignore_index=True)
+                adduct_matched.insert(5, 'reference_formula', row['formula'])
+                adduct_matched.insert(6, 'reference_mix', row['mix'])
+                adduct_matched.insert(7, 'reference_rt', row['rt_reference'])
+                compound_matched  = pd.concat([compound_matched, adduct_matched], ignore_index=True)
         if len(compound_matched)>0:
             compound_matched = dereplicate(compound_matched)
-        mix_matched = pd.concat([mix_matched, compound_matched],ignore_index=True)
+            mix_matched = pd.concat([mix_matched, compound_matched],ignore_index=True)
+            # compound_matched = pd.concat([compound_matched, adduct_matched], ignore_index=True)
+
+
+
+
+    if len(mix_matched)>0:
+        mix_matched.drop(columns=['eic_center', 'eic_offset'], inplace=True)
     return(mix_matched)

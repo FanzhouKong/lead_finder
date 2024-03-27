@@ -10,14 +10,6 @@ import os
 import toolsets.T_rex as trx
 import matplotlib.pyplot as plt
 
-def check_ms2(ms2):
-    return_idx = []
-    for index, row in ms2.iterrows():
-        if row['precursor_mz']>=row['isolation_window'][1] or row['precursor_mz']<=row['isolation_window'][0]:
-        # if row['precursor_mz']<=row['isolation_window'][1] or row['precursor_mz']>=row['isolation_window'][0]:
-            return_idx.append(index)
-
-    return (return_idx)
 def auto_EIC(pmz, ms1, mass_tolerance = 0.005, show_eic = False):
     mass_sorted, intensity_sorted, index_sorted, rt_list = trx.build_index(ms1)
     intensity_list = trx.flash_eic(pmz, mass_sorted, intensity_sorted, index_sorted, mass_error=mass_tolerance)
@@ -43,7 +35,7 @@ def EIC(rt_list, intensity_list,
         if np.max(base_line_series)>max:
             max = np.max(base_line_series)
 
-    ax.set_ylim(0, max+100)
+    ax.set_ylim(0, max*1.1)
     if rt_start != -1 and rt_end != -1:
         index_start = np.searchsorted(rt_list, rt_start,side = 'left')
         index_end = np.searchsorted(rt_list, rt_end,side = 'right')
@@ -60,10 +52,10 @@ def EIC(rt_list, intensity_list,
         ax.set_ylim(0, adjusted_height)
     if len(vlines_location_1)>0:
         for position in vlines_location_1:
-            plt.axvline(x = position, color = 'red')
+            plt.axvline(x = position, color = 'red',linestyle='--')
     if len(vlines_location_2)>0:
         for position in vlines_location_2:
-            plt.axvline(x = position, color = 'green')
+            plt.axvline(x = position, color = 'green',linestyle='--')
     ax.grid(False)
     ax.set_facecolor("none")
     ax.spines['bottom'].set_color('black')
@@ -82,7 +74,7 @@ def EIC(rt_list, intensity_list,
         plt.savefig(savepath, dpi = 300,facecolor = 'white', edgecolor = 'black')
     if show != True:
         plt.close()
-def read_mzml(mzml_path, parent_dir =  None, rt_max = None,if_mix = False):
+def read_mzml(mzml_path, parent_dir =  None, rt_max = None,if_mix = False, sp_removal = False):
 
     if if_mix == True and parent_dir != None:
         mix = mzml_path
@@ -90,7 +82,7 @@ def read_mzml(mzml_path, parent_dir =  None, rt_max = None,if_mix = False):
         mzml_path = os.path.join(parent_dir, mzml_base_name)
     if if_mix == False and parent_dir is not None:
         mzml_path = os.path.join(parent_dir,mzml_path)
-    if mzml_path[-5:]!='.mzML':
+    if mzml_path[-5:]!='.mzML' and mzml_path[-5:]!='.mzml':
         mzml_path = mzml_path+'.mzML'
     ms1_2 = _load_mzml_data(mzml_path, rt_max = rt_max)
     ms2 = string_search(ms1_2, 'ms_level', 2)
@@ -137,6 +129,12 @@ def read_mzml(mzml_path, parent_dir =  None, rt_max = None,if_mix = False):
     # ms2 =ms2[ms2['peak_purity'] !=0]
     # ms2 = ms2[ms2['mz_offset']<0.5]
     ms2.reset_index(inplace=True, drop=True)
+
+    if sp_removal == True:
+        peaks_binned =[]
+        for index, row in (ms1.iterrows()):
+            peaks_binned.append(np.array(_bin_ms1(row['peaks'],resolution = 60000)).T)
+        ms1['peaks_binned']=peaks_binned
     return(ms1, ms2)
 def _load_mzml_data(file: str, n_most_abundant=400, rt_max = None) -> tuple:
     """Load data from an mzml file as a dictionary.
@@ -307,3 +305,25 @@ def _extract_ms1_intensity(peaks, mz_lower, mz_upper):
     search_array=np.array(mass_temp)
     index_start, index_end = search_array.searchsorted([mz_lower, mz_upper])
     return(np.sum(intensity_temp[index_start: index_end]))
+def _bin_ms1(peaks, resolution = 60000):
+    mass, intensity = peaks.T
+    mass_binned = np.zeros(len(mass))
+    intensity_binned = np.zeros(len(mass))
+    counter = 0
+    while len(mass)>0:
+        seed_idx = np.argmax(intensity)
+        seed_mass = mass[seed_idx]
+        res = seed_mass/resolution
+        idx_left, idx_right = mass.searchsorted([seed_mass-3*res, seed_mass+3*res])
+        mass_binned[counter]=seed_mass
+        intensity_binned[counter]=intensity[seed_idx]
+        mass = np.concatenate((mass[0:idx_left], mass[idx_right:]))
+        intensity = np.concatenate((intensity[0:idx_left], intensity[idx_right:]))
+        counter = counter+1#make sure this always the last line!
+    mass_binned = mass_binned[0:counter]
+    intensity_binned = intensity_binned[0:counter]
+    order = np.argsort(mass_binned)
+    mass_binned = mass_binned[order]
+    intensity_binned = intensity_binned[order]
+
+    return((mass_binned, intensity_binned))

@@ -58,7 +58,6 @@ def find_adduct_columns(columns, adducts = None):
             adducts.append(col)
     return(adducts)
 def _precursor_matching_mix(std_list_mix, features, step = 0.005):
-    features.drop_duplicates(subset=['ms2_range_idx'], inplace=True)
     features.sort_values(by='precursor_mz', inplace=True, ignore_index=True)
     adducts = find_adduct_columns(std_list_mix)
     matched_mix = pd.DataFrame()
@@ -69,10 +68,9 @@ def _precursor_matching_mix(std_list_mix, features, step = 0.005):
     for index, row in std_list_mix.iterrows():
         for adduct in adducts:
             # print(row[adduct])
-            try:
-                raw_matched = quick_search_sorted(features, 'precursor_mz', float(row[adduct]), step = step)
-            except:
-                print(row[adduct])
+
+            raw_matched = quick_search_sorted(features, 'precursor_mz', float(row[adduct])-step, float(row[adduct])+step)
+
             if len(raw_matched)>0:   #there is at least 1 valid match
                 # raw_matched.sort_values(by = 'ms1_intensity', inplace=True, ascending= False)
 

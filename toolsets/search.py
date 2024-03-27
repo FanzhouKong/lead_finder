@@ -5,7 +5,6 @@ import toolsets.helpers as helpers
 def search_feature(feature, pmz=None, rt = None, mass_error =0.005, rt_error = 1.5, pmz_sorted = False):
     pmz_col = helpers.specify_column('precursor mz', feature.columns)
     rt_col =helpers.specify_column('rt apex', feature.columns)
-    # print(pmz_col, rt_col)
     if pmz is not None and rt is None:
         if pmz_sorted==False:
             pmz_match = quick_search_values(feature, pmz_col, pmz-mass_error, pmz+mass_error)
@@ -17,7 +16,7 @@ def search_feature(feature, pmz=None, rt = None, mass_error =0.005, rt_error = 1
         return rt_match
     elif pmz is not None and rt is not None:
         if pmz_sorted==False:
-            pmz_match = quick_search_values(feature, pmz_col, pmz-0.005, pmz+0.005)
+            pmz_match = quick_search_values(feature, pmz_col, pmz-mass_error, pmz+mass_error)
         else:
             pmz_match = quick_search_sorted(feature, pmz_col, pmz-mass_error, pmz+mass_error)
         rt_match = quick_search_values(pmz_match, rt_col, rt-rt_error/60, rt+rt_error/60)

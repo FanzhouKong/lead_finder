@@ -3,7 +3,7 @@
 
 # In[ ]:
 
-import toolsets.mass_to_formula as mtf
+
 import re
 import pandas as pd
 import spectral_entropy as se
@@ -44,8 +44,10 @@ def check_spectrum(msms):
 
 def sort_spectrum(msms):
     mass, intensity = break_spectra(msms)
-    mass_sorted, intensity_sorted = zip(*sorted(zip(mass, intensity)))
-    return(pack_spectra(list(mass_sorted), list(intensity_sorted)))
+    order = np.argsort(mass)
+    mass_sorted = mass[order]
+    intensity_sorted = intensity[order]
+    return(pack_spectra((mass_sorted), (intensity_sorted)))
 
 
 # def clean_spectrum(msms,
@@ -109,7 +111,7 @@ def add_spectra(msms1, msms2):
     return(msms_mix)
 def bin_spectrum(msms,mass_error = 0.01):
     # normalize spectrum is included already!!!
-    mass, intensity = break_spectra(sort_spectrum((msms)))
+    mass, intensity = break_spectra(sort_spectrum(msms))
     mass_binned = []
     intensity_binned = []
     while len(mass)>0:
@@ -120,8 +122,8 @@ def bin_spectrum(msms,mass_error = 0.01):
         intensity_temp = intensity[idx_start:idx_end]
         mass_binned.append(mass[idx])
         intensity_binned.append(np.sum(intensity_temp))
-        mass = mass[:idx_start]+mass[idx_end:]
-        intensity = intensity[:idx_start]+intensity[idx_end:]
+        mass = np.concatenate((mass[:idx_start], mass[idx_end:]))
+        intensity = np.concatenate((intensity[:idx_start], intensity[idx_end:]))
     msms_binned = sort_spectrum(pack_spectra(mass_binned, intensity_binned))
     return msms_binned
 def clean_spectrum(msms):
@@ -298,7 +300,7 @@ def break_spectra(spectra):
             mass = split_msms[::2]
             mass = [float(item) for item in mass]
             intensity = [float(item) for item in intensity]
-            return(mass, intensity)
+            return(np.array(mass), np.array(intensity))
     else:
         return(np.NaN, np.NAN)
 
@@ -342,7 +344,7 @@ def convert_scc_to_string(msms):
     return(msms_return)
 
 def convert_string_to_nist(msms):
-    spec_raw = np.array([x.split('\t') for x in msms.split('\n')], dtype=np.float32)
+    spec_raw = np.array([x.split('\t') for x in msms.split('\n')], dtype=np.float64)
     return(spec_raw)
 
 def spectral_entropy(msms):
@@ -481,6 +483,8 @@ def entropy_identity(msms1, msms2,pmz = None,NIST =False, mass_error = 0.01):
     if pmz is not None:
         msms1 = truncate_msms(msms1, pmz-1.6)
         msms2 = truncate_msms(msms2, pmz-1.6)
+    if num_peaks(msms1)==0 or num_peaks(msms2)==0:
+            return(-1)
     msms1 = normalize_spectrum(msms1)
     msms2 = normalize_spectrum(msms2)
     S1 = spectral_entropy(msms1)
@@ -496,8 +500,7 @@ def entropy_identity(msms1, msms2,pmz = None,NIST =False, mass_error = 0.01):
         intensity = [pow(x, coef) for x in intensity]
         msms2 = pack_spectra(mass, intensity)
 
-    if num_peaks(msms1)==0 or num_peaks(msms2)==0:
-        return(np.NAN)
+
     msms1 = normalize_spectrum(msms1, total='half')
     msms2 = normalize_spectrum(msms2, total='half')
 
@@ -513,6 +516,7 @@ def entropy_identity(msms1, msms2,pmz = None,NIST =False, mass_error = 0.01):
     for m in mass_r:
         i1, i2 = find_peak_match(mass1, intensity1, mass2, intensity2, m, mass_error)
         if i1>0 and i2>0:
+
             score = score+entropy_function(i1+i2)-entropy_function(i1)-entropy_function(i2)
     return (score)
 
@@ -638,10 +642,12 @@ def normalize_spectrum(msms, total = 'unit'):
     # intensity_rel = [round(number, 8) for number in intensity_rel]
     return(pack_spectra(mass, intensity_rel))
 def cut_msms(msms, mz_lower, mz_upper):
+    if msms!= msms:
+        return np.NAN
     mass_temp, intensity_temp = break_spectra(msms)
     search_array=np.array(mass_temp)
 
-    if mass_temp == mass_temp:
+    if mass_temp.all() == mass_temp.all():
         index_start, index_end = search_array.searchsorted([mz_lower, mz_upper])
         mass_return = mass_temp[index_start:index_end]
         intensity_return = intensity_temp[index_start:index_end]

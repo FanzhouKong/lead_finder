@@ -114,7 +114,7 @@ def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz=None, pm
     # ax.set_yticklabels(labels)
     # ax.set_ylim(msms2['inverse_normalized_intensity'].min(), msms1['normalized_intensity'].max())
     ax.set_ylim(-100, +100)
-    print('entropy similarity is ', so.entropy_identity(msms_1, msms_2, pmz))
+    print('entropy similarity is ', so.entropy_identity(msms_1, msms_2, pmz, mass_error=0.01))
     plt.axhline(y=0, color='black', linestyle='-')
     start, end = ax.get_ylim()
     plt.tight_layout()
@@ -129,7 +129,7 @@ def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz=None, pm
 
     plt.tight_layout()
     if savepath != None:
-        plt.savefig(savepath, dpi = 300,facecolor = 'none', edgecolor = 'none')
+        plt.savefig(savepath, dpi = 300,facecolor = 'white', edgecolor = 'none')
     if show==True:
         return(plt)
     else:
@@ -137,25 +137,17 @@ def head_to_tail_plot(msms_1, msms_2,mz_start = None, mz_end = None,pmz=None, pm
 
 
 # In[10]:
-from toolsets.API_gets import GNPS_get
+
 from rdkit import Chem
 import os
-from toolsets.API_gets import inchi_to_smiles
 # from mimas.external.features_by_alphapept.load_mzml_data import load_mzml_data
 from tqdm import tqdm
 from toolsets.helpers import find_files
 from toolsets.spectra_operations import break_spectra, pack_spectra
 import matplotlib.pyplot as plt
 
-import multiprocessing
-from functools import partial
-from itertools import repeat
-from multiprocessing import Pool, freeze_support
-def molplot_from_inchikey(inchikey):
-    smile_temp = inchi_to_smiles(inchikey)
-    mol = Chem.MolFromSmiles(smile_temp)
-    mol
-    return(mol)
+
+
 
 
 
@@ -254,16 +246,25 @@ def ms2_plot(msms_1, pmz1 = None, lower=None, upper=None, savepath = None, color
     mass1, intensity1 = so.break_spectra(msms_1)
     mass1 = [float(x) for x in mass1]
     intensity1 = [float(x) for x in intensity1]
-    d = {'m/z':mass1, 'intensity':intensity1}
-    msms1 = pd.DataFrame(d)
-    max_val = np.max(msms1['intensity'])
-    msms1["normalized_intensity"] = msms1['intensity'] / max_val * 100.0  # normalize intensity to percent
-    
+
+    if lower is not None:
+        idx_left = np.searchsorted(mass1, lower, side= 'left')
+    else:
+        idx_left = 0
+    if upper is not None:
+        idx_right = np.searchsorted(mass1, upper, side = 'right')
+    else:
+        idx_right = len(mass1)
+    mass1 = mass1[idx_left:idx_right]
+    intensity1 = intensity1[idx_left:idx_right]
+    normalized_intensity = [x/np.max(intensity1)*100 for x in intensity1]
+
+
     fig = plt.figure(figsize = (4, 3))
     plt.subplots_adjust()
     ax = fig.add_subplot()
-    for i in range(len(msms1['m/z'])):
-        plt.vlines(x = msms1["m/z"][i], ymin = 0, ymax = msms1["normalized_intensity"][i],color = color, linewidth=2)
+    for i in range(len(mass1)):
+        plt.vlines(x = mass1[i], ymin = 0, ymax = normalized_intensity[i],color = color, linewidth=2)
     if pmz1 != None:
         plt.vlines(x = pmz1, ymin = 0, ymax = 100,color = 'grey', linestyle='dashed')
     # plt.legend()

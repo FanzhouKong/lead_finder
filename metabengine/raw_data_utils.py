@@ -7,7 +7,7 @@
 from pyteomics import mzml, mzxml
 import numpy as np
 import os
-# from . import peak_detect
+from . import peak_detect
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -199,17 +199,17 @@ class MSData:
             self.scans[idx].int_seq = self.scans[idx].int_seq[self.scans[idx].int_seq > self.params.int_tol]
 
 
-    # def find_rois(self):
-    #     """
-    #     Function to find ROI in MS1 scans.
-    #
-    #     Parameters
-    #     ----------------------------------------------------------
-    #     params: Params object
-    #         A Params object that contains the parameters.
-    #     """
-    #
-    #     self.rois = peak_detect.roi_finder(self, self.params)
+    def find_rois(self):
+        """
+        Function to find ROI in MS1 scans.
+
+        Parameters
+        ----------------------------------------------------------
+        params: Params object
+            A Params object that contains the parameters.
+        """
+
+        self.rois = peak_detect.roi_finder(self, self.params)
     
 
     # def cut_rois(self, return_cut_rois=False):
